@@ -1,0 +1,1220 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>냉장고 파먹기 자판기 | 내 주방 맞춤 AI 처방 앱</title>
+
+  <!-- PWA 메타 태그 (iOS & Android 전체화면 앱 모드 지원) -->
+  <meta name="theme-color" content="#020617" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="냉파자판기" />
+  <link id="dynamicManifest" rel="manifest" />
+  <link id="dynamicFavicon" rel="icon" type="image/svg+xml" />
+  <link id="dynamicAppleIcon" rel="apple-touch-icon" />
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .lever-shadow { box-shadow: 0 8px 25px -4px rgba(249, 115, 22, 0.45); }
+    .fw-active {
+      border-color: #f97316 !important;
+      background: linear-gradient(135deg, rgba(249,115,22,0.2), rgba(245,158,11,0.08)) !important;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(249, 115, 22, 0.22);
+    }
+    .tour-highlight {
+      position: relative;
+      z-index: 60 !important;
+      box-shadow: 0 0 0 4px #f97316, 0 0 35px rgba(249, 115, 22, 0.65) !important;
+      transition: all 0.3s ease;
+    }
+    @keyframes slideOutTicket {
+      0% { opacity: 0; transform: translateY(-18px) scale(0.98); }
+      100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .ticket-anim { animation: slideOutTicket 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen pb-24 select-none sm:select-auto">
+
+  <!-- 📲 상단 PWA 앱 설치 유도 스마트 배너 (미설치 시 노출) -->
+  <div id="pwaTopBanner" class="bg-gradient-to-r from-orange-500/20 via-amber-500/15 to-slate-900 border-b border-orange-500/30 px-4 py-2.5">
+    <div class="max-w-4xl mx-auto flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2 py-0.5 rounded-full bg-orange-500 text-slate-950 font-extrabold text-[10px]">PWA 앱 지원</span>
+        <span class="text-slate-200 font-medium">스마트폰 홈 화면에 추가하면 주소창 없는 진짜 앱으로 작동합니다!</span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button onclick="triggerPwaInstall()" class="px-3 py-1 rounded-lg bg-orange-500 hover:bg-orange-400 text-slate-950 font-extrabold text-xs transition">
+          📲 앱 설치하기
+        </button>
+        <button onclick="dismissPwaBanner()" class="text-slate-400 hover:text-white px-1.5 text-xs">✕</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 상단 앱 헤더 -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
+    <div class="max-w-4xl mx-auto px-4 py-3.5 flex items-center justify-between gap-2">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-xl shadow-md">
+          🎰
+        </div>
+        <div>
+          <h1 class="font-extrabold text-base sm:text-lg text-white tracking-tight leading-none flex items-center gap-2">
+            냉장고 파먹기 자판기
+            <span id="pwaModeBadge" class="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-bold">PWA Ready</span>
+          </h1>
+          <p class="text-[11px] text-slate-400 mt-1">내 주방 양념·도구 기억형 무지출 한 끼 생성기</p>
+        </div>
+      </div>
+
+      <!-- 우측 컨트롤 버튼들 -->
+      <div class="flex items-center gap-1.5 sm:gap-2">
+        <button onclick="startOnboardingTour()" class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-300 transition" title="초기 사용 가이드 다시 보기">
+          ❓ <span class="hidden md:inline">가이드</span>
+        </button>
+
+        <button id="tourTargetKitchen" onclick="toggleKitchenDrawer()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-orange-300 flex items-center gap-1.5 transition">
+          <span>🧂 내 주방</span>
+          <span id="kitchenSummaryBadge" class="bg-orange-500/20 text-orange-400 px-1.5 py-0.5 rounded text-[10px]">도구3·양념7</span>
+        </button>
+
+        <button onclick="toggleSavedModal()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 flex items-center gap-1 transition">
+          <span>📚 도감</span>
+          <span id="savedBadgeCount" class="text-orange-400 font-extrabold">0</span>
+        </button>
+
+        <button onclick="toggleAuthModal()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-300 flex items-center gap-1.5 transition">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span id="authBtnText" class="hidden sm:inline">클라우드/API</span>
+          <span class="sm:hidden">⚙️</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 컨테이너 -->
+  <main class="max-w-4xl mx-auto px-4 pt-5 space-y-5">
+
+    <!-- 🛡️ AI 코인 계기판 & 안전망 시뮬레이터 바 -->
+    <section id="tourTargetQuota" class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center gap-2">
+          <span class="text-xs font-extrabold text-amber-400">🪙 오늘 무료 AI 코인</span>
+          <span id="coinVisual" class="text-sm tracking-widest">●●●●●</span>
+          <span id="coinCountText" class="text-xs font-bold text-white">(5/5)</span>
+        </div>
+        <span class="text-xs text-slate-400">
+          소진 또는 서버 장애 시 <b class="text-emerald-400">내장 스마트 엔진</b>으로 무제한 작동
+        </span>
+      </div>
+
+      <div class="flex items-center gap-2 self-end sm:self-auto">
+        <label class="cursor-pointer flex items-center gap-1.5 text-[11px] bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg text-slate-300 hover:border-rose-500/50 transition">
+          <input type="checkbox" id="simulateErrorToggle" class="accent-rose-500" />
+          <span>🚨 서버 장애 테스트</span>
+        </label>
+        <button onclick="resetDailyQuotaForTest()" class="text-[11px] bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 rounded-lg text-amber-300 font-semibold transition">
+          🔄 코인 리필
+        </button>
+      </div>
+    </section>
+
+    <!-- 내 주방 필터 요약 바 -->
+    <div onclick="toggleKitchenDrawer()" class="cursor-pointer bg-slate-900/90 hover:bg-slate-900 border border-slate-800 hover:border-orange-500/40 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-2 transition">
+      <div class="flex items-center gap-2 text-xs">
+        <span class="px-2 py-0.5 rounded-md bg-orange-500/15 text-orange-400 font-bold border border-orange-500/30">내 주방 기억 ON</span>
+        <span id="activeKitchenText" class="text-slate-300 truncate max-w-xl"></span>
+      </div>
+      <span class="text-[11px] text-orange-400 font-semibold whitespace-nowrap">양념·도구 변경하기 ▸</span>
+    </div>
+
+    <!-- STEP 1. 식재료 투입구 -->
+    <section id="tourTargetInput" class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 shadow-xl">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-[11px] font-extrabold uppercase tracking-wider text-orange-400">STEP 01 · 무제한 자유 투입</span>
+          <h2 class="text-base sm:text-lg font-extrabold text-white mt-0.5">지금 눈앞에 있는 재료를 던져 넣으세요</h2>
+        </div>
+        <button onclick="clearIngredients()" class="text-xs text-slate-400 hover:text-rose-400 transition">전체 비우기</button>
+      </div>
+
+      <!-- 빠른 추천 조합 -->
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1">
+        <span class="text-[11px] text-slate-500 shrink-0 mr-1">⚡ 원클릭 예시:</span>
+        <button onclick="applyPreset(['남은 스팸', '자투리 양배추', '대파'])" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition">스팸+양배추+대파</button>
+        <button onclick="applyPreset(['배달 남은 순대', '진라면 매운맛', '양파 반개'])" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition">순대+진라면+양파</button>
+        <button onclick="applyPreset(['두부 반모', '참치캔', '신김치'])" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition">두부+참치+신김치</button>
+        <button onclick="applyPreset(['달걀 2개', '자투리 당근', '소시지', '옥수수콘'])" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition">달걀+당근+소시지</button>
+      </div>
+
+      <!-- 재료 입력창 -->
+      <div class="flex gap-2">
+        <input id="ingInput" type="text" placeholder="식재료 입력 후 Enter (쉼표 ',' 로 여러 개 한 번에 입력 가능)"
+          class="flex-1 bg-slate-950 border border-slate-700 focus:border-orange-500 rounded-2xl px-4 py-3.5 text-sm text-white outline-none transition"
+          onkeydown="if(event.key==='Enter'){ event.preventDefault(); addIngredientsFromInput(); }" />
+        <button onclick="addIngredientsFromInput()" class="px-5 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-600 font-bold text-sm text-white transition shrink-0">
+          + 투입
+        </button>
+      </div>
+
+      <!-- 투입된 재료 태그 트레이 (Empty State 가이드 포함) -->
+      <div id="ingredientTray" class="min-h-[68px] bg-slate-950/90 border border-dashed border-slate-700 rounded-2xl p-3.5 flex flex-wrap gap-2 items-center"></div>
+
+      <!-- 단골 식재료 빠른 칩 -->
+      <div class="flex flex-wrap items-center gap-1.5">
+        <span class="text-[11px] text-slate-500 mr-1">단골 재료:</span>
+        <button onclick="addOneIngredient('달걀')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 달걀</button>
+        <button onclick="addOneIngredient('스팸')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 스팸</button>
+        <button onclick="addOneIngredient('양배추')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 양배추</button>
+        <button onclick="addOneIngredient('두부')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 두부</button>
+        <button onclick="addOneIngredient('참치캔')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 참치캔</button>
+        <button onclick="addOneIngredient('신김치')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 신김치</button>
+        <button onclick="addOneIngredient('남은 순대')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 남은 순대</button>
+        <button onclick="addOneIngredient('라면사리')" class="text-xs bg-slate-800/80 hover:bg-slate-700 px-2.5 py-1 rounded-full text-slate-300">+ 라면사리</button>
+      </div>
+
+      <!-- 자판기 레버 버튼 -->
+      <button id="leverBtn" onclick="pullVendingLever(false)" class="w-full py-4 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:shadow-none text-slate-950 font-extrabold text-base lever-shadow transition flex items-center justify-center gap-2">
+        <span id="leverBtnLabel">🕹️ 한 끼 살려내기 (코인 1개 사용 · 동일 조합 무료)</span>
+      </button>
+    </section>
+
+    <!-- STEP 2. 4대 만능 조리 틀 전광판 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5">
+      <div class="flex items-center justify-between mb-3">
+        <span class="text-xs font-bold text-slate-300">⚡ 4대 만능 조리 틀 자동 판정기</span>
+        <span id="rouletteStatus" class="text-xs text-orange-400 font-semibold">최적 조리 틀 대기 중</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <div id="slot-1" class="border border-slate-800 bg-slate-950 p-3 rounded-2xl transition duration-200">
+          <div class="text-[11px] font-bold text-slate-400">① 물리적 결합</div>
+          <div class="text-sm font-extrabold text-white mt-0.5">🥞 달걀 · 부침</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">반죽/달걀물로 응집</div>
+        </div>
+        <div id="slot-2" class="border border-slate-800 bg-slate-950 p-3 rounded-2xl transition duration-200">
+          <div class="text-[11px] font-bold text-slate-400">② 코팅형 결합</div>
+          <div class="text-sm font-extrabold text-white mt-0.5">🍳 볶음 · 덮밥</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">기름+보유 양념 코팅</div>
+        </div>
+        <div id="slot-3" class="border border-slate-800 bg-slate-950 p-3 rounded-2xl transition duration-200">
+          <div class="text-[11px] font-bold text-slate-400">③ 국물형 결합</div>
+          <div class="text-sm font-extrabold text-white mt-0.5">🍲 짜글이 · 찌개</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">국물 양념장으로 통일</div>
+        </div>
+        <div id="slot-4" class="border border-slate-800 bg-slate-950 p-3 rounded-2xl transition duration-200">
+          <div class="text-[11px] font-bold text-slate-400">④ 토핑형 결합</div>
+          <div class="text-sm font-extrabold text-white mt-0.5">🍜 면 · 간편식</div>
+          <div class="text-[11px] text-slate-500 mt-0.5">면/즉석밥에 토핑 결합</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- STEP 3. 자판기 배출구 -->
+    <section class="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+          <h2 class="font-extrabold text-base text-white">자판기 단일 처방 티켓</h2>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="pullVendingLever(true)" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-slate-200 transition">
+            🔄 다른 조리 틀로 재조합
+          </button>
+          <button onclick="saveRecipeToBook()" class="px-3 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 text-xs font-extrabold transition">
+            ⭐ 도감에 저장
+          </button>
+        </div>
+      </div>
+
+      <!-- 안전망 배너 -->
+      <div id="safetyNetBanner" class="hidden rounded-2xl p-3.5 text-xs border"></div>
+
+      <!-- 레시피 티켓 본문 -->
+      <div id="ticketContainer"></div>
+    </section>
+
+  </main>
+
+  <!-- =================================================
+       ✨ [신규] 초기 접속 3단계 인터랙티브 온보딩 투어 모달
+       ================================================= -->
+  <div id="onboardingOverlay" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-orange-500/60 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <span id="tourStepBadge" class="px-2.5 py-1 rounded-full bg-orange-500/20 text-orange-400 font-extrabold text-xs">
+          STEP 1 / 3
+        </span>
+        <button onclick="finishOnboardingTour()" class="text-xs text-slate-400 hover:text-white">건너뛰기 ✕</button>
+      </div>
+
+      <div class="space-y-2">
+        <div id="tourIcon" class="text-3xl">🧂</div>
+        <h3 id="tourTitle" class="text-lg font-extrabold text-white">1. 내 주방 양념과 도구를 먼저 켜두세요</h3>
+        <p id="tourDesc" class="text-xs sm:text-sm text-slate-300 leading-relaxed">
+          상단의 <b>[🧂 내 주방]</b> 버튼에서 집에 있는 양념(쌈장, 간장, 라면스프 등)과 도구만 체크해 두세요. 한 번만 세팅하면 자판기가 <b>없는 재료는 절대 요구하지 않습니다!</b>
+        </p>
+      </div>
+
+      <!-- 진행 도트 및 버튼 -->
+      <div class="flex items-center justify-between pt-3 border-t border-slate-800">
+        <div class="flex gap-1.5" id="tourDots">
+          <span class="w-6 h-1.5 rounded-full bg-orange-500"></span>
+          <span class="w-2 h-1.5 rounded-full bg-slate-700"></span>
+          <span class="w-2 h-1.5 rounded-full bg-slate-700"></span>
+        </div>
+        <div class="flex gap-2">
+          <button id="tourPrevBtn" onclick="prevTourStep()" class="hidden px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300">
+            이전
+          </button>
+          <button id="tourNextBtn" onclick="nextTourStep()" class="px-5 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 font-extrabold text-xs">
+            다음 ▸
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================
+       📲 [신규] PWA 스마트폰 홈 화면 설치 안내 모달
+       ================================================= -->
+  <div id="pwaInstallModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-md w-full p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">📲</span>
+          <div>
+            <h3 class="font-extrabold text-base text-white">홈 화면에 앱으로 설치하기</h3>
+            <p class="text-[11px] text-slate-400">앱스토어 없이 3초 만에 설치됩니다 (용량 1MB 미만)</p>
+          </div>
+        </div>
+        <button onclick="togglePwaModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-1.5">
+          <div class="font-bold text-orange-400">🍎 아이폰 / 아이패드 (Safari 브라우저)</div>
+          <p class="text-slate-300 leading-relaxed">
+            1. 하단 중앙의 <b>[공유 버튼 (네모 위 화살표 ⬆️)]</b>을 누릅니다.<br>
+            2. 메뉴를 내려 <b>[홈 화면에 추가 ➕]</b>를 선택하면 앱 아이콘이 생성됩니다!
+          </p>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3.5 space-y-1.5">
+          <div class="font-bold text-emerald-400">🤖 갤럭시 / 안드로이드 & PC (Chrome/Edge)</div>
+          <p class="text-slate-300 leading-relaxed">
+            1. 브라우저 우측 상단 메뉴 <b>[⋮]</b>를 누릅니다.<br>
+            2. <b>[앱 설치]</b> 또는 <b>[홈 화면에 추가]</b>를 누르면 즉시 설치됩니다!
+          </p>
+        </div>
+      </div>
+
+      <button onclick="togglePwaModal()" class="w-full py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 font-extrabold text-xs">
+        확인했습니다
+      </button>
+    </div>
+  </div>
+
+  <!-- DRAWER 1: 내 주방 양념/도구 기억 서랍 -->
+  <div id="kitchenDrawer" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden justify-end">
+    <div class="bg-slate-900 border-l border-slate-800 w-full max-w-md h-full p-6 flex flex-col justify-between overflow-y-auto">
+      <div class="space-y-6">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div>
+            <span class="text-[11px] font-bold text-orange-400 uppercase">Kitchen Profile</span>
+            <h3 class="text-lg font-extrabold text-white">🧂 내 주방 양념 · 조리도구 설정</h3>
+          </div>
+          <button onclick="toggleKitchenDrawer()" class="text-slate-400 hover:text-white text-lg">✕</button>
+        </div>
+
+        <p class="text-xs text-slate-400 leading-relaxed">
+          AI 서버가 살아있을 때나, 무료 코인을 다 써서 <b>내장 안전망 엔진</b>이 돌 때나 동일하게 아래 체크된 도구·양념 안에서만 레시피를 뽑아줍니다.
+        </p>
+
+        <div class="space-y-2.5">
+          <div class="text-xs font-bold text-white flex items-center justify-between">
+            <span>🔥 사용 가능한 조리 도구</span>
+            <span class="text-[11px] text-slate-400">클릭하여 ON/OFF</span>
+          </div>
+          <div id="toolOptionsGrid" class="grid grid-cols-2 gap-2"></div>
+        </div>
+
+        <div class="space-y-2.5">
+          <div class="text-xs font-bold text-white flex items-center justify-between">
+            <span>🍶 보유 중인 양념 · 소스</span>
+            <span class="text-[11px] text-slate-400">집에 있는 것만 선택</span>
+          </div>
+          <div id="seasoningOptionsGrid" class="grid grid-cols-3 gap-2"></div>
+        </div>
+      </div>
+
+      <div class="pt-6 border-t border-slate-800 mt-6 flex items-center justify-between gap-3">
+        <span class="text-[11px] text-emerald-400">✓ 변경 즉시 자동 저장</span>
+        <button onclick="toggleKitchenDrawer(); pullVendingLever(false);" class="px-5 py-3 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 font-extrabold text-xs transition">
+          적용하고 다시 뽑기
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: 나만의 짬처리 도감 -->
+  <div id="savedModal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="font-extrabold text-base text-white">📚 나만의 짬처리 도감</h3>
+          <p class="text-[11px] text-slate-400">저장된 레시피를 다시 불러올 때는 AI 코인이 차감되지 않습니다</p>
+        </div>
+        <button onclick="toggleSavedModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+      <div id="savedListContainer" class="space-y-2.5 max-h-80 overflow-y-auto pr-1"></div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: Supabase 클라우드 & Gemini API 설정 -->
+  <div id="authModal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="font-extrabold text-base text-white">☁️ 클라우드 로그인 & 무료 엔진 연결</h3>
+          <p class="text-[11px] text-slate-400">Supabase Free Tier & Gemini 2.5 Flash 무료 연동</p>
+        </div>
+        <button onclick="toggleAuthModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-orange-400">1. 내 주방 프로필 계정</span>
+          <span id="currentUserBadge" class="text-[11px] text-emerald-400 font-semibold">게스트 동기화 중</span>
+        </div>
+        <div class="flex gap-2">
+          <input id="userEmailInput" type="email" placeholder="이메일 입력 (예: jaehun@univ.ac.kr)"
+            class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-orange-500" />
+          <button onclick="handleUserLogin()" class="px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-400 text-slate-950 font-extrabold text-xs shrink-0">
+            프로필 연결
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+        <div class="text-xs font-bold text-slate-200">2. Supabase 프로젝트 연동 (선택사항 · 0원)</div>
+        <input id="sbUrlInput" type="text" placeholder="Supabase Project URL (https://xxx.supabase.co)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+        <input id="sbKeyInput" type="password" placeholder="Supabase Anon Public Key"
+          class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+      </div>
+
+      <div class="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-2.5">
+        <div class="text-xs font-bold text-slate-200">3. Gemini API Key (선택사항 · 1일 5회 쿼터 보호 적용)</div>
+        <input id="geminiKeyInput" type="password" placeholder="Google AI Studio 무료 키 (AIzaSy...)"
+          class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none" />
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2">
+        <button onclick="saveCloudConfig()" class="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs">
+          설정 저장 및 즉시 적용
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. 📲 단일 파일 내장형 PWA 세팅 (SVG 아이콘 + Manifest + 설치 프롬프트)
+    // =========================================================================
+    let deferredInstallPrompt = null;
+
+    function setupSingleFilePWA() {
+      // 앱 아이콘 SVG 생성 (자판기 테마 오렌지 그라데이션)
+      const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+        <defs>
+          <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#f97316"/>
+            <stop offset="100%" stop-color="#f59e0b"/>
+          </linearGradient>
+        </defs>
+        <rect width="512" height="512" rx="120" fill="url(#g)"/>
+        <text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="280">🎰</text>
+      </svg>`;
+      const iconDataUrl = 'data:image/svg+xml;utf8,' + encodeURIComponent(svgIcon);
+
+      document.getElementById('dynamicFavicon').href = iconDataUrl;
+      document.getElementById('dynamicAppleIcon').href = iconDataUrl;
+
+      // 동적 Web App Manifest 생성 및 주입
+      const manifestObj = {
+        name: "냉장고 파먹기 자판기",
+        short_name: "냉파자판기",
+        description: "내 주방 양념·도구 기억형 무지출 한 끼 생성기",
+        start_url: "./",
+        display: "standalone",
+        background_color: "#020617",
+        theme_color: "#020617",
+        icons: [
+          { src: iconDataUrl, sizes: "192x192 512x512", type: "image/svg+xml", purpose: "any maskable" }
+        ]
+      };
+      const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/manifest+json' });
+      document.getElementById('dynamicManifest').href = URL.createObjectURL(manifestBlob);
+
+      // 이미 전체화면(Standalone) 앱 모드로 실행 중이면 상단 설치 배너 숨김
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+      if (isStandalone || localStorage.getItem('pwa_banner_dismissed') === '1') {
+        document.getElementById('pwaTopBanner').classList.add('hidden');
+      }
+      if (isStandalone) {
+        document.getElementById('pwaModeBadge').textContent = 'App Mode 실행중';
+      }
+
+      // 브라우저 기본 설치 프롬프트 캡처 (Android / Desktop Chrome)
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredInstallPrompt = e;
+      });
+    }
+
+    async function triggerPwaInstall() {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+          dismissPwaBanner();
+        }
+        deferredInstallPrompt = null;
+      } else {
+        // iOS Safari 등 수동 홈 화면 추가 안내 모달 오픈
+        togglePwaModal();
+      }
+    }
+
+    function dismissPwaBanner() {
+      document.getElementById('pwaTopBanner').classList.add('hidden');
+      localStorage.setItem('pwa_banner_dismissed', '1');
+    }
+
+    function togglePwaModal() {
+      const el = document.getElementById('pwaInstallModal');
+      el.classList.toggle('hidden');
+      el.classList.toggle('flex');
+    }
+
+    // =========================================================================
+    // 2. ✨ 초기 온보딩 3단계 인터랙티브 스포트라이트 투어
+    // =========================================================================
+    let currentTourIndex = 0;
+    const TOUR_STEPS = [
+      {
+        targetId: 'tourTargetKitchen',
+        icon: '🧂',
+        title: '1. 내 주방 양념과 도구를 먼저 켜두세요',
+        desc: '우측 상단 <b>[🧂 내 주방]</b> 버튼에서 집에 있는 양념(쌈장, 고추장, 라면스프 등)과 조리도구만 체크해 두세요. 한 번만 세팅하면 자판기가 <b>없는 재료는 절대 요구하지 않습니다!</b>'
+      },
+      {
+        targetId: 'tourTargetInput',
+        icon: '🥕',
+        title: '2. 눈앞의 자투리 재료를 개수 제한 없이 투입!',
+        desc: '유통기한 관리할 필요 없이, 지금 당장 처치해야 할 재료를 쉼표(,)로 구분해 마음껏 던져 넣으세요. 재료가 2개든 7개든 <b>4대 만능 조리 틀</b> 중 최적의 틀 1개로 묶어줍니다.'
+      },
+      {
+        targetId: 'tourTargetQuota',
+        icon: '🛡️',
+        title: '3. 일일 무료 코인 & 무중단 안전망 보장',
+        desc: '매일 5개의 무료 AI 코인이 충전됩니다. 코인을 다 쓰거나 AI 서버가 응답하지 않아도, 앱이 멈추지 않고 <b>비용 0원 내장 주방 맞춤 엔진</b>이 즉시 티켓을 배출합니다!'
+      }
+    ];
+
+    function clearTourHighlights() {
+      TOUR_STEPS.forEach(s => {
+        const el = document.getElementById(s.targetId);
+        if (el) el.classList.remove('tour-highlight');
+      });
+    }
+
+    function renderTourStep() {
+      clearTourHighlights();
+      const step = TOUR_STEPS[currentTourIndex];
+      const targetEl = document.getElementById(step.targetId);
+      if (targetEl) {
+        targetEl.classList.add('tour-highlight');
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+
+      document.getElementById('tourStepBadge').textContent = `STEP ${currentTourIndex + 1} / ${TOUR_STEPS.length}`;
+      document.getElementById('tourIcon').textContent = step.icon;
+      document.getElementById('tourTitle').textContent = step.title;
+      document.getElementById('tourDesc').innerHTML = step.desc;
+
+      // 도트 표시 업데이트
+      const dotsHtml = TOUR_STEPS.map((_, idx) =>
+        idx === currentTourIndex
+          ? `<span class="w-6 h-1.5 rounded-full bg-orange-500 transition-all"></span>`
+          : `<span class="w-2 h-1.5 rounded-full bg-slate-700 transition-all"></span>`
+      ).join('');
+      document.getElementById('tourDots').innerHTML = dotsHtml;
+
+      // 이전/다음 버튼 상태
+      const prevBtn = document.getElementById('tourPrevBtn');
+      const nextBtn = document.getElementById('tourNextBtn');
+      if (currentTourIndex === 0) prevBtn.classList.add('hidden');
+      else prevBtn.classList.remove('hidden');
+
+      nextBtn.textContent = currentTourIndex === TOUR_STEPS.length - 1 ? '자판기 시작하기 🚀' : '다음 ▸';
+    }
+
+    function startOnboardingTour() {
+      currentTourIndex = 0;
+      const overlay = document.getElementById('onboardingOverlay');
+      overlay.classList.remove('hidden');
+      overlay.classList.add('flex');
+      renderTourStep();
+    }
+
+    function nextTourStep() {
+      if (currentTourIndex < TOUR_STEPS.length - 1) {
+        currentTourIndex += 1;
+        renderTourStep();
+      } else {
+        finishOnboardingTour();
+      }
+    }
+
+    function prevTourStep() {
+      if (currentTourIndex > 0) {
+        currentTourIndex -= 1;
+        renderTourStep();
+      }
+    }
+
+    function finishOnboardingTour() {
+      clearTourHighlights();
+      const overlay = document.getElementById('onboardingOverlay');
+      overlay.classList.add('hidden');
+      overlay.classList.remove('flex');
+      localStorage.setItem('vending_onboarding_done_v5', '1');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // =========================================================================
+    // 3. 핵심 데이터 및 4중 방어 로직 (일일 쿼터 / 쿨타임 / 캐시 / 안전망)
+    // =========================================================================
+    const DAILY_MAX_QUOTA = 5;
+    const COOLDOWN_MS = 2800;
+    const API_TIMEOUT_MS = 3500;
+
+    const ALL_TOOLS = [
+      { id: '프라이팬(1구 화구)', icon: '🍳' },
+      { id: '냄비', icon: '🍲' },
+      { id: '전자레인지', icon: '⚡' },
+      { id: '에어프라이어', icon: '🌪️' },
+      { id: '전기포트', icon: '🔌' }
+    ];
+
+    const ALL_SEASONINGS = [
+      '간장', '설탕', '고추장', '된장', '쌈장',
+      '소금', '식용유', '참기름', '식초', '굴소스',
+      '케첩', '마요네즈', '다진마늘', '후추', '라면스프'
+    ];
+
+    let ingredients = ['남은 스팸', '자투리 양배추', '대파'];
+    let myKitchen = JSON.parse(localStorage.getItem('my_kitchen_profile_v5') || JSON.stringify({
+      tools: ['프라이팬(1구 화구)', '냄비', '전자레인지'],
+      seasonings: ['간장', '설탕', '고추장', '쌈장', '식용유', '식초', '라면스프']
+    }));
+    let savedRecipes = JSON.parse(localStorage.getItem('my_saved_recipes_v5') || '[]');
+    let recipeCache = JSON.parse(localStorage.getItem('my_recipe_cache_v5') || '{}');
+    let currentRecipe = null;
+    let isLeverLocked = false;
+
+    let currentUserEmail = localStorage.getItem('vending_user_email') || '';
+    let sbUrl = localStorage.getItem('vending_sb_url') || '';
+    let sbKey = localStorage.getItem('vending_sb_key') || '';
+    let geminiKey = localStorage.getItem('vending_gemini_key') || '';
+
+    function getTodayDateString() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+
+    function getQuotaState() {
+      const today = getTodayDateString();
+      const raw = JSON.parse(localStorage.getItem('vending_daily_quota_v5') || '{}');
+      if (raw.date !== today) {
+        const fresh = { date: today, used: 0 };
+        localStorage.setItem('vending_daily_quota_v5', JSON.stringify(fresh));
+        return fresh;
+      }
+      return raw;
+    }
+
+    function consumeOneQuotaCoin() {
+      const state = getQuotaState();
+      if (state.used < DAILY_MAX_QUOTA) {
+        state.used += 1;
+        localStorage.setItem('vending_daily_quota_v5', JSON.stringify(state));
+      }
+      renderQuotaDashboard();
+    }
+
+    function resetDailyQuotaForTest() {
+      const fresh = { date: getTodayDateString(), used: 0 };
+      localStorage.setItem('vending_daily_quota_v5', JSON.stringify(fresh));
+      renderQuotaDashboard();
+      showSafetyBanner('info', '🪙 [테스트 리필 완료] 오늘 무료 AI 코인 5개가 모두 충전되었습니다!');
+    }
+
+    function renderQuotaDashboard() {
+      const state = getQuotaState();
+      const remaining = Math.max(0, DAILY_MAX_QUOTA - state.used);
+      const coinVisual = document.getElementById('coinVisual');
+      coinVisual.textContent = '●'.repeat(remaining) + '○'.repeat(DAILY_MAX_QUOTA - remaining);
+      coinVisual.className = remaining > 0 ? 'text-sm tracking-widest text-amber-400' : 'text-sm tracking-widest text-slate-600';
+      document.getElementById('coinCountText').textContent = `(${remaining}/${DAILY_MAX_QUOTA})`;
+    }
+
+    function showSafetyBanner(type, message) {
+      const banner = document.getElementById('safetyNetBanner');
+      if (!type) {
+        banner.className = 'hidden';
+        return;
+      }
+      const styleMap = {
+        cache: 'bg-blue-500/10 border-blue-500/30 text-blue-300',
+        quota: 'bg-amber-500/10 border-amber-500/30 text-amber-300',
+        fallback: 'bg-rose-500/10 border-rose-500/30 text-rose-200',
+        info: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+      };
+      banner.className = `rounded-2xl p-3.5 text-xs border flex items-center justify-between gap-2 ${styleMap[type] || styleMap.info}`;
+      banner.innerHTML = `<span>${message}</span>`;
+    }
+
+    function buildCacheKey(ings, kitchen, excludeId) {
+      const sortedIngs = [...ings].sort().join('|');
+      const sortedTools = [...kitchen.tools].sort().join('|');
+      const sortedSeasonings = [...kitchen.seasonings].sort().join('|');
+      return `${sortedIngs}__${sortedTools}__${sortedSeasonings}__ex:${excludeId || 0}`;
+    }
+
+    function lockLeverWithCooldown() {
+      isLeverLocked = true;
+      const btn = document.getElementById('leverBtn');
+      const label = document.getElementById('leverBtnLabel');
+      btn.disabled = true;
+
+      let remainSec = Math.ceil(COOLDOWN_MS / 1000);
+      label.textContent = `⏳ 과열 방지 쿨타임 중... (${remainSec}초)`;
+
+      const cdInterval = setInterval(() => {
+        remainSec -= 1;
+        if (remainSec > 0) label.textContent = `⏳ 과열 방지 쿨타임 중... (${remainSec}초)`;
+      }, 1000);
+
+      setTimeout(() => {
+        clearInterval(cdInterval);
+        isLeverLocked = false;
+        btn.disabled = false;
+        label.textContent = '🕹️ 한 끼 살려내기 (코인 1개 사용 · 동일 조합 무료)';
+      }, COOLDOWN_MS);
+    }
+
+    async function pullVendingLever(excludeCurrent = false, isInitialLoad = false) {
+      if (isLeverLocked && !isInitialLoad) return;
+      if (ingredients.length === 0) {
+        alert('식재료를 1개 이상 투입해 주세요!');
+        return;
+      }
+
+      const excludeId = (excludeCurrent && currentRecipe) ? currentRecipe.framework_id : null;
+      const cacheKey = buildCacheKey(ingredients, myKitchen, excludeId);
+      const simulateError = document.getElementById('simulateErrorToggle')?.checked;
+
+      // 1. 동일 조합 캐시 방어
+      if (!simulateError && !excludeCurrent && recipeCache[cacheKey] && !isInitialLoad) {
+        const cached = recipeCache[cacheKey];
+        currentRecipe = cached;
+        setActiveSlot(cached.framework_id);
+        document.getElementById('rouletteStatus').textContent = `⚡ 캐시 즉시 배출: ${cached.framework_name}`;
+        showSafetyBanner('cache', '⚡ <b>[스마트 캐시 적중]</b> 방금 조회한 동일 재료·양념 조합이므로 <b>AI 코인 차감 없이(비용 0원)</b> 0.1초 만에 불러왔습니다.');
+        renderTicketCard(cached);
+        return;
+      }
+
+      if (!isInitialLoad) lockLeverWithCooldown();
+
+      const statusEl = document.getElementById('rouletteStatus');
+      statusEl.textContent = '내 주방 양념·도구 조건 스캔 중...';
+
+      let tick = 1;
+      const timer = setInterval(() => {
+        setActiveSlot(((tick - 1) % 4) + 1);
+        tick++;
+      }, 120);
+
+      const quota = getQuotaState();
+      const hasCoinsLeft = quota.used < DAILY_MAX_QUOTA;
+      let recipeResult = null;
+
+      try {
+        if (simulateError) {
+          await new Promise(r => setTimeout(r, 450));
+          throw new Error('SIMULATED_SERVER_DOWN');
+        }
+
+        if (!hasCoinsLeft && !isInitialLoad) {
+          await new Promise(r => setTimeout(r, 450));
+          recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+          recipeResult.engine_badge = '무제한 안전망 엔진 (비용 0원)';
+          showSafetyBanner('quota', '🛡️ <b>[일일 무료 AI 코인 5회 소진]</b> API 과금을 원천 차단하고 <b>내장 주방 맞춤형 스마트 엔진(무료·무제한)</b>으로 자동 전환하여 처방했습니다!');
+        } else if (geminiKey) {
+          recipeResult = await Promise.race([
+            generateWithGemini(ingredients, myKitchen, excludeId),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('API_TIMEOUT')), API_TIMEOUT_MS))
+          ]);
+          recipeResult.engine_badge = 'Gemini 2.5 Flash AI';
+          if (!isInitialLoad) consumeOneQuotaCoin();
+          showSafetyBanner('info', '✨ <b>[AI 맞춤 생성 완료]</b> 오늘 무료 AI 코인 1개를 사용하여 레시피를 생성했습니다.');
+        } else {
+          await new Promise(r => setTimeout(r, 480));
+          recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+          recipeResult.engine_badge = '스마트 규칙 엔진 (AI 코인 시뮬레이션)';
+          if (!isInitialLoad) {
+            consumeOneQuotaCoin();
+            showSafetyBanner('info', '🪙 <b>[일일 쿼터 차감 완료]</b> 무료 코인 1개가 사용되었습니다. (동일한 조합을 다시 누르면 캐시가 작동해 코인이 줄지 않습니다!)');
+          }
+        }
+      } catch (err) {
+        recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+        recipeResult.engine_badge = '비상 안전망 엔진 (Auto-Fallback)';
+        showSafetyBanner('fallback', '🚨 <b>[서버 장애 자동 복구 작동]</b> AI 응답 지연/오류를 감지하여 <b>코인 차감 없이 내장 안전망 엔진</b>이 즉시 대체 레시피를 배출했습니다!');
+      }
+
+      clearInterval(timer);
+      currentRecipe = recipeResult;
+      recipeCache[cacheKey] = recipeResult;
+      localStorage.setItem('my_recipe_cache_v5', JSON.stringify(recipeCache));
+
+      setActiveSlot(recipeResult.framework_id);
+      statusEl.textContent = `매칭 완료: ${recipeResult.framework_name}`;
+      renderTicketCard(recipeResult);
+    }
+
+    // 내 주방 맞춤형 스마트 엔진
+    function generateWithKitchenAwareEngine(ings, kitchen, excludeId) {
+      const joined = ings.join(' ');
+      const allIngsText = ings.join(', ');
+      const titleMain = ings.slice(0, 2).join(' ');
+
+      const hasPan = kitchen.tools.some(t => t.includes('프라이팬'));
+      const hasPot = kitchen.tools.some(t => t.includes('냄비'));
+      const hasMicrowave = kitchen.tools.some(t => t.includes('전자레인지'));
+
+      const sList = kitchen.seasonings;
+      const pickSeasoning = (preferred, fallback) => {
+        for (const p of preferred) {
+          if (sList.includes(p)) return p;
+        }
+        return sList[0] || fallback;
+      };
+
+      const mainSauce = pickSeasoning(['쌈장', '굴소스', '고추장', '간장', '된장'], '소금/간장');
+      const sweetSauce = sList.includes('설탕') ? '설탕 반 스푼' : '채소 자체 단맛';
+      const soupBase = pickSeasoning(['고추장', '된장', '라면스프', '간장'], '간장');
+      const oilBase = pickSeasoning(['식용유', '참기름', '마요네즈'], '물 2스푼(워터소테)');
+
+      let fwId = 2;
+      if (/라면|면|사리|우동|순대/.test(joined)) fwId = 4;
+      else if (/김치|두부|참치|찌개|국/.test(joined) && hasPot) fwId = 3;
+      else if (/달걀|계란|당근|옥수수|소시지/.test(joined) && hasPan) fwId = 1;
+      else fwId = 2;
+
+      if (excludeId && fwId === excludeId) fwId = (fwId % 4) + 1;
+
+      const activeTool = hasPan ? '프라이팬' : (hasPot ? '냄비' : (hasMicrowave ? '전자레인지 내열용기' : kitchen.tools[0]));
+
+      const templates = {
+        1: {
+          framework_id: 1,
+          framework_name: '① 물리적 결합 (달걀·부침)',
+          dish_name: `${titleMain} 노릇 한판 응집전`,
+          one_line_pitch: `겉도는 [${allIngsText}]를 달걀/반죽 접착제로 묶어 [${activeTool}] 하나로 완성!`,
+          used_tool: activeTool,
+          used_seasonings: [oilBase, pickSeasoning(['소금', '간장', '라면스프'], '소금 약간'), pickSeasoning(['케첩', '간장', '식초'], '간장 소스')],
+          steps: [
+            `[잘게 다지기] 준비한 재료(${allIngsText})를 서로 잘 뭉쳐지도록 한입보다 작게 송송 썰어 볼에 담습니다.`,
+            `[물리적 반죽 결합] 달걀이나 부침가루와 ${pickSeasoning(['소금', '간장'], '소금')}을 넣고 재료에 끈기가 생기게 섞습니다.`,
+            `[${activeTool} 조리] ${activeTool}에 ${oilBase}를 두르고 중약불에서 앞뒤로 노릇하게 익혀 한 판으로 완성합니다.`
+          ],
+          cheat_key: sList.includes('케첩')
+            ? '내 주방에 있는 케첩이나 마요네즈를 살짝 뿌려 먹으면 반찬 겸 안주로 완벽합니다!'
+            : `내 주방에 케첩이 없어도 괜찮습니다! 보유하신 [${mainSauce}]에 ${sList.includes('식초') ? '식초 두 방울' : '물 약간'}을 섞어 찍어 드세요.`
+        },
+        2: {
+          framework_id: 2,
+          framework_name: '② 코팅형 결합 (볶음·덮밥)',
+          dish_name: `${mainSauce} 코팅 ${titleMain} 덮밥`,
+          one_line_pitch: `내 주방에 있는 [${mainSauce}]와 [${oilBase}]만으로 [${allIngsText}]를 쫀득하게 코팅한 한 그릇!`,
+          used_tool: activeTool,
+          used_seasonings: [oilBase, `${mainSauce} 1스푼`, sweetSauce],
+          steps: [
+            `[한입 손질] 투입한 재료(${allIngsText})를 열이 골고루 통하도록 비슷한 크기로 깍둑썰기합니다.`,
+            `[${activeTool} 볶기] ${activeTool}에 ${oilBase}를 두르고 단단한 재료부터 넣어 노릇하게 구워 풍미를 끌어올립니다.`,
+            `[${mainSauce} 코팅] 불을 약하게 줄인 뒤 내 주방의 [${mainSauce} 1스푼 + ${sweetSauce} + 물 2스푼]을 넣고 윤기 나게 코팅해 밥 위에 얹습니다.`
+          ],
+          cheat_key: sList.includes('식초')
+            ? `맛이 살짝 무겁거나 텁텁할 때 보유 중인 [식초]를 딱 2방울만 떨어뜨리면 감칠맛이 확 살아납니다!`
+            : `내 주방의 [${mainSauce}] 간이 세다면 밥이나 채소 비중을 늘리고 참기름이나 후추로 마무리해 보세요!`
+        },
+        3: {
+          framework_id: 3,
+          framework_name: '③ 국물형 결합 (짜글이·찌개)',
+          dish_name: `${soupBase} 베이스 ${titleMain} 진국 짜글이`,
+          one_line_pitch: `[${allIngsText}]를 자작한 국물에 다 넣고 내 주방의 [${soupBase}]로 맛을 하나로 통일!`,
+          used_tool: hasPot ? '냄비' : activeTool,
+          used_seasonings: [`${soupBase} 1스푼`, sweetSauce, pickSeasoning(['다진마늘', '간장', '라면스프'], '기본 양념')],
+          steps: [
+            `[재료 깔기] ${hasPot ? '냄비' : activeTool} 바닥에 손질한 재료(${allIngsText})를 차곡차곡 깔아줍니다.`,
+            `[자작한 양념 배합] 재료가 반쯤 잠길 만큼 물을 붓고, 내 주방에 있는 [${soupBase} 1스푼 + ${sweetSauce}]을 풀어 넣습니다.`,
+            `[걸쭉하게 졸이기] 국물이 자작해지면서 모든 재료에서 우러난 맛이 하나로 합쳐질 때까지 중강불에서 바글바글 끓여냅니다.`
+          ],
+          cheat_key: sList.includes('라면스프')
+            ? '내 주방에 보유 중인 [라면스프]를 1/3봉지만 살짝 털어 넣으면 식당에서 파는 깊은 감칠맛이 즉시 완성됩니다!'
+            : `국물 간이 부족할 땐 보유하신 [${mainSauce}]를 반 스푼만 추가해 밥에 쓱쓱 비벼 드세요!`
+        },
+        4: {
+          framework_id: 4,
+          framework_name: '④ 토핑형 결합 (면·간편식)',
+          dish_name: `${titleMain} 풀토핑 화구 볶음면`,
+          one_line_pitch: `면·간편식 베이스 위에 [${allIngsText}]를 고명 사리로 흡수시켜 [${activeTool}] 하나로 소생!`,
+          used_tool: activeTool,
+          used_seasonings: [pickSeasoning(['라면스프', '간장', '고추장', '쌈장'], '라면스프/간장'), sweetSauce, oilBase],
+          steps: [
+            `[베이스 & 토핑 준비] 면 사리가 있다면 설익게 준비하고, 나머지 재료(${allIngsText})는 한입 크기로 썹니다.`,
+            `[토핑 불향 입히기] ${activeTool}에 ${oilBase}를 두르고 손질한 부재료들을 먼저 볶아 고소한 향을 냅니다.`,
+            `[소스 합체] 면(또는 즉석밥)과 물 3스푼, 내 주방의 [${pickSeasoning(['라면스프', '고추장', '간장', '쌈장'], '기본양념')}]와 ${sweetSauce}을 넣고 빠르게 볶아냅니다.`
+          ],
+          cheat_key: '국물 라면이라도 물을 가득 붓지 않고 면수 3스푼 + 보유 양념으로 볶아내면 남은 배달 음식이나 채소가 완벽한 요리 토핑으로 변신합니다!'
+        }
+      };
+
+      return { ...templates[fwId], input_ingredients: [...ings] };
+    }
+
+    async function generateWithGemini(ings, kitchen, excludeId) {
+      const prompt = `
+[투입된 식재료]: ${ings.join(', ')}
+[내 주방 보유 조리도구]: ${kitchen.tools.join(', ')}
+[내 주방 보유 양념]: ${kitchen.seasonings.join(', ')}
+${excludeId ? `[제외할 조리 틀]: framework_id ${excludeId}번은 제외하고 다른 번호(1~4)를 선택하세요.` : ''}
+반드시 내 주방 보유 도구와 양념만 사용하여 JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key)으로 응답하세요.`;
+
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
+        method: 'POST',
+        // 키는 URL 대신 헤더로 전달 (브라우저 기록·서버 로그에 남지 않도록)
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiKey },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { responseMimeType: 'application/json' }
+        })
+      });
+      if (!res.ok) throw new Error(`HTTP_${res.status}`);
+      const data = await res.json();
+      const parsed = JSON.parse(data.candidates[0].content.parts[0].text);
+      return { ...parsed, input_ingredients: [...ings] };
+    }
+
+    // =========================================================================
+    // 4. UI 렌더링 & Empty State 온보딩 처리
+    // =========================================================================
+    function setActiveSlot(slotId) {
+      for (let i = 1; i <= 4; i++) {
+        const el = document.getElementById(`slot-${i}`);
+        if (i === slotId) el.classList.add('fw-active');
+        else el.classList.remove('fw-active');
+      }
+    }
+
+    function renderIngredients() {
+      const tray = document.getElementById('ingredientTray');
+      // ✨ Empty State (재료가 0개일 때 당황하지 않도록 즉시 실행 가능한 가이드 버튼 제공)
+      if (ingredients.length === 0) {
+        tray.innerHTML = `
+          <div class="w-full text-center py-2 space-y-2">
+            <p class="text-xs text-slate-400">🫙 투입구가 비어 있습니다! 위 입력창에 치거나 아래 예시를 눌러 바로 시작해 보세요.</p>
+            <div class="flex flex-wrap justify-center gap-1.5">
+              <button onclick="applyPreset(['남은 스팸', '자투리 양배추', '대파'])" class="text-[11px] px-2.5 py-1 rounded-full bg-orange-500/20 text-orange-300 border border-orange-500/30 font-bold hover:bg-orange-500/30">
+                ⚡ 스팸+양배추+대파 넣어보기
+              </button>
+              <button onclick="applyPreset(['배달 남은 순대', '진라면 매운맛', '양파 반개'])" class="text-[11px] px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700">
+                ⚡ 남은순대+진라면 넣어보기
+              </button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+      tray.innerHTML = ingredients.map((ing, i) => `
+        <span class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">
+          <span>${ing}</span>
+          <button onclick="removeIngredient(${i})" class="text-orange-400 hover:text-white font-extrabold">✕</button>
+        </span>
+      `).join('');
+    }
+
+    function renderTicketCard(r) {
+      const container = document.getElementById('ticketContainer');
+      container.classList.remove('ticket-anim');
+      void container.offsetWidth;
+      container.classList.add('ticket-anim');
+
+      container.innerHTML = `
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <span class="px-3 py-1 rounded-full text-xs font-extrabold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+              ${r.framework_name}
+            </span>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] font-semibold text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
+                ⚙️ ${r.engine_badge || '스마트 엔진'}
+              </span>
+              <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
+                🔥 ${r.used_tool || myKitchen.tools[0]}
+              </span>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-xl sm:text-2xl font-extrabold text-white">${r.dish_name}</h3>
+            <p class="text-xs sm:text-sm text-slate-300 mt-1">${r.one_line_pitch}</p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 text-xs">
+            <div>
+              <span class="text-slate-400 font-semibold block mb-1">🥕 투입된 식재료 (${r.input_ingredients.length}종)</span>
+              <span class="text-orange-300 font-bold">${r.input_ingredients.join(', ')}</span>
+            </div>
+            <div>
+              <span class="text-slate-400 font-semibold block mb-1">🧂 내 주방에서 꺼낼 양념 (추가구매 0원)</span>
+              <span class="text-amber-200 font-bold">${(r.used_seasonings || []).join(', ')}</span>
+            </div>
+          </div>
+
+          <div class="space-y-2.5">
+            <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">초간단 3단계 레시피</div>
+            ${(r.steps || []).map((step, idx) => `
+              <div class="flex gap-3 items-start bg-slate-900/70 border border-slate-800/90 p-3.5 rounded-xl">
+                <span class="w-6 h-6 rounded-full bg-orange-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">${idx + 1}</span>
+                <p class="text-xs sm:text-sm text-slate-200 leading-relaxed">${step}</p>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+            <div class="text-xs font-extrabold text-amber-400 mb-1">💡 내 주방 맞춤형 맛 밸런스 치트키</div>
+            <p class="text-xs text-amber-100/90 leading-relaxed">${r.cheat_key}</p>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderKitchenSelectors() {
+      document.getElementById('kitchenSummaryBadge').textContent =
+        `도구${myKitchen.tools.length}·양념${myKitchen.seasonings.length}`;
+      const previewTools = myKitchen.tools.join(', ') || '도구 없음';
+      const previewSeasonings = myKitchen.seasonings.slice(0, 6).join(', ') +
+        (myKitchen.seasonings.length > 6 ? ` 외 ${myKitchen.seasonings.length - 6}종` : '');
+      document.getElementById('activeKitchenText').innerHTML =
+        `<b>[${previewTools}]</b> · 양념: <b>${previewSeasonings || '없음'}</b>`;
+
+      document.getElementById('toolOptionsGrid').innerHTML = ALL_TOOLS.map(t => {
+        const active = myKitchen.tools.includes(t.id);
+        return `
+          <button onclick="toggleTool('${t.id}')" class="p-3 rounded-xl border text-left transition flex items-center justify-between ${
+            active ? 'bg-orange-500/15 border-orange-500 text-white font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
+          }">
+            <span class="text-xs">${t.icon} ${t.id}</span>
+            <span class="text-[10px] ${active ? 'text-orange-400' : 'text-slate-600'}">${active ? '보유' : '없음'}</span>
+          </button>
+        `;
+      }).join('');
+
+      document.getElementById('seasoningOptionsGrid').innerHTML = ALL_SEASONINGS.map(s => {
+        const active = myKitchen.seasonings.includes(s);
+        return `
+          <button onclick="toggleSeasoning('${s}')" class="py-2.5 px-3 rounded-xl border text-xs transition text-center ${
+            active ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
+          }">
+            ${active ? '✓ ' : ''}${s}
+          </button>
+        `;
+      }).join('');
+    }
+
+    function toggleTool(toolId) {
+      const idx = myKitchen.tools.indexOf(toolId);
+      if (idx > -1) {
+        if (myKitchen.tools.length === 1) return alert('최소 1개의 조리 도구는 선택되어 있어야 합니다!');
+        myKitchen.tools.splice(idx, 1);
+      } else {
+        myKitchen.tools.push(toolId);
+      }
+      localStorage.setItem('my_kitchen_profile_v5', JSON.stringify(myKitchen));
+      renderKitchenSelectors();
+    }
+
+    function toggleSeasoning(s) {
+      const idx = myKitchen.seasonings.indexOf(s);
+      if (idx > -1) myKitchen.seasonings.splice(idx, 1);
+      else myKitchen.seasonings.push(s);
+      localStorage.setItem('my_kitchen_profile_v5', JSON.stringify(myKitchen));
+      renderKitchenSelectors();
+    }
+
+    function addIngredientsFromInput() {
+      const input = document.getElementById('ingInput');
+      const raw = input.value.trim();
+      if (!raw) return;
+      raw.split(/[,]+/).map(s => s.trim()).filter(Boolean).forEach(item => {
+        if (!ingredients.includes(item)) ingredients.push(item);
+      });
+      input.value = '';
+      renderIngredients();
+    }
+
+    function addOneIngredient(item) {
+      if (!ingredients.includes(item)) {
+        ingredients.push(item);
+        renderIngredients();
+      }
+    }
+
+    function removeIngredient(idx) {
+      ingredients.splice(idx, 1);
+      renderIngredients();
+    }
+
+    function clearIngredients() {
+      ingredients = [];
+      renderIngredients();
+    }
+
+    function applyPreset(list) {
+      ingredients = [...list];
+      renderIngredients();
+      pullVendingLever(false);
+    }
+
+    function saveRecipeToBook() {
+      if (!currentRecipe) return;
+      if (savedRecipes.some(item => item.dish_name === currentRecipe.dish_name)) {
+        return alert('이미 도감에 저장된 레시피입니다!');
+      }
+      savedRecipes.unshift({ ...currentRecipe, saved_at: new Date().toLocaleDateString('ko-KR') });
+      localStorage.setItem('my_saved_recipes_v5', JSON.stringify(savedRecipes));
+      updateSavedModalList();
+      alert('⭐ 도감에 저장되었습니다!');
+    }
+
+    function updateSavedModalList() {
+      document.getElementById('savedBadgeCount').textContent = savedRecipes.length;
+      const listEl = document.getElementById('savedListContainer');
+      if (savedRecipes.length === 0) {
+        listEl.innerHTML = `<div class="text-xs text-slate-500 text-center py-8">저장된 레시피가 없습니다.</div>`;
+        return;
+      }
+      listEl.innerHTML = savedRecipes.map((item, idx) => `
+        <div class="flex items-center justify-between bg-slate-950 border border-slate-800 p-3.5 rounded-2xl">
+          <button onclick="loadFromSaved(${idx})" class="text-left flex-1 pr-3">
+            <div class="text-xs font-extrabold text-white">${item.dish_name}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">${item.framework_name} · ${item.input_ingredients.join(', ')}</div>
+          </button>
+          <button onclick="removeSaved(${idx})" class="text-xs text-slate-500 hover:text-rose-400 px-2">삭제</button>
+        </div>
+      `).join('');
+    }
+
+    function loadFromSaved(idx) {
+      const item = savedRecipes[idx];
+      if (!item) return;
+      ingredients = [...item.input_ingredients];
+      currentRecipe = item;
+      renderIngredients();
+      setActiveSlot(item.framework_id);
+      showSafetyBanner('info', '📚 <b>[도감 불러오기]</b> 저장된 레시피를 불러왔으므로 AI 코인이 차감되지 않았습니다.');
+      renderTicketCard(item);
+      toggleSavedModal();
+    }
+
+    function removeSaved(idx) {
+      savedRecipes.splice(idx, 1);
+      localStorage.setItem('my_saved_recipes_v5', JSON.stringify(savedRecipes));
+      updateSavedModalList();
+    }
+
+    function toggleKitchenDrawer() {
+      const el = document.getElementById('kitchenDrawer');
+      el.classList.toggle('hidden');
+      el.classList.toggle('flex');
+    }
+
+    function toggleSavedModal() {
+      const el = document.getElementById('savedModal');
+      el.classList.toggle('hidden');
+      el.classList.toggle('flex');
+    }
+
+    function toggleAuthModal() {
+      const el = document.getElementById('authModal');
+      el.classList.toggle('hidden');
+      el.classList.toggle('flex');
+      document.getElementById('userEmailInput').value = currentUserEmail;
+      document.getElementById('sbUrlInput').value = sbUrl;
+      document.getElementById('sbKeyInput').value = sbKey;
+      document.getElementById('geminiKeyInput').value = geminiKey;
+    }
+
+    function handleUserLogin() {
+      const email = document.getElementById('userEmailInput').value.trim();
+      if (!email) return alert('이메일을 입력해 주세요.');
+      currentUserEmail = email;
+      localStorage.setItem('vending_user_email', email);
+      document.getElementById('currentUserBadge').textContent = `${email} 연동됨`;
+      document.getElementById('authBtnText').textContent = email.split('@')[0] + '의 주방';
+      alert(`환영합니다! [${email}] 계정이 연결되었습니다.`);
+    }
+
+    function saveCloudConfig() {
+      sbUrl = document.getElementById('sbUrlInput').value.trim();
+      sbKey = document.getElementById('sbKeyInput').value.trim();
+      geminiKey = document.getElementById('geminiKeyInput').value.trim();
+      localStorage.setItem('vending_sb_url', sbUrl);
+      localStorage.setItem('vending_sb_key', sbKey);
+      localStorage.setItem('vending_gemini_key', geminiKey);
+      toggleAuthModal();
+      pullVendingLever(false);
+    }
+
+    // 초기 부트스트랩
+    window.addEventListener('DOMContentLoaded', () => {
+      setupSingleFilePWA();
+      renderQuotaDashboard();
+      renderKitchenSelectors();
+      renderIngredients();
+      updateSavedModalList();
+      pullVendingLever(false, true);
+
+      // 최초 방문 시 3단계 온보딩 투어 자동 실행
+      if (localStorage.getItem('vending_onboarding_done_v5') !== '1') {
+        setTimeout(() => startOnboardingTour(), 400);
+      }
+    });
+  </script>
+</body>
+</html>
