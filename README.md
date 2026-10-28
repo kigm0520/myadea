@@ -21,8 +21,8 @@
 로컬 서버로 띄운 뒤 브라우저에서 엽니다. PWA 설치 기능은 `http://` 또는 `https://`로 열어야 동작합니다.
 
 ```bash
-python3 -m http.server 8000
-# 브라우저에서 http://localhost:8000 접속
+python3 -m http.server 3065 --bind 0.0.0.0
+# 브라우저에서 http://localhost:3065 접속 (다른 기기에서는 http://<서버 주소>:3065)
 ```
 
 간단히 볼 때는 `index.html`을 브라우저로 직접 열어도 됩니다.
