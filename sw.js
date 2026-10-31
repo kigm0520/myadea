@@ -1,4 +1,4 @@
-// 냉장고 파먹기 자판기 서비스 워커
+// 냉장고 털이 자판기 서비스 워커
 // 네트워크 우선으로 받고, 오프라인일 때만 마지막으로 받은 앱 파일을 보여 준다.
 const CACHE_NAME = 'vending-shell-v1';
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
