@@ -646,6 +646,7 @@
     ['my_recipe_cache_v5', 'my_recipe_cache_v6'].forEach(k => localStorage.removeItem(k));
     let recipeCache = JSON.parse(localStorage.getItem(RECIPE_CACHE_KEY) || '{}');
     let currentRecipe = null;
+    let lastSuggestions = [];
     let isLeverLocked = false;
 
     let currentUserEmail = localStorage.getItem('vending_user_email') || '';
@@ -864,6 +865,24 @@
         3: t.pot,
         4: (NOODLE_RE.test(joined) || RICE_RE.test(joined)) && (t.pan || t.pot)
       };
+    }
+
+    // "하나만 사면" 추천: 지금 재료로는 못 만드는 요리나 맛을 열어 주는 재료·양념 (최대 2개)
+    function suggestOneMore(ings, kitchen) {
+      const t = detectToolSet(kitchen.tools);
+      const joined = ings.join(' ');
+      const has = (s) => kitchen.seasonings.includes(s);
+      const canStir = t.pan || t.pot;
+      const list = [];
+      if (!['쌈장', '굴소스', '고추장', '간장', '된장', '케첩'].some(has)) {
+        list.push({ kind: 'seasoning', name: '간장', reason: '간을 맞출 기본 양념이 생겨요' });
+      } else if (t.pot && !['고추장', '된장', '라면스프'].some(has)) {
+        list.push({ kind: 'seasoning', name: '고추장', reason: '얼큰한 짜글이를 끓일 수 있어요' });
+      }
+      if (!BINDER_RE.test(joined) && t.pan) list.push({ kind: 'ingredient', name: '달걀', reason: '부침(전)으로 만들 수 있어요' });
+      if (!RICE_RE.test(joined) && canStir) list.push({ kind: 'ingredient', name: '즉석밥', reason: '덮밥이나 볶음밥이 돼요' });
+      if (!NOODLE_RE.test(joined) && canStir) list.push({ kind: 'ingredient', name: '라면사리', reason: '볶음면으로 만들 수 있어요' });
+      return list.filter(x => !isAvoided(x.name)).slice(0, 2);
     }
 
     // 내 주방 맞춤형 스마트 엔진
@@ -1131,7 +1150,43 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       ).join('')}</div>`;
     }
 
+    function buildSuggestionBox() {
+      if (!lastSuggestions.length) return '';
+      return `
+        <div class="bg-sky-500/10 border border-sky-500/30 rounded-xl p-4 space-y-2">
+          <div class="text-xs font-extrabold text-sky-300">🛒 하나만 사면 이런 것도 돼요</div>
+          ${lastSuggestions.map((x, i) => `
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="text-sky-100/90"><b>${escapeHtml(x.name)}</b> 하나면 ${escapeHtml(x.reason)}</span>
+              <button onclick="applySuggestion(${i})" class="shrink-0 px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 font-bold transition">
+                샀어요 → 다시 뽑기
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    // 추천 재료를 사 왔다고 하면 재료(또는 내 주방 양념)에 넣고 바로 다시 뽑음
+    function applySuggestion(i) {
+      const x = lastSuggestions[i];
+      if (!x) return;
+      if (x.kind === 'seasoning') {
+        if (!myKitchen.seasonings.includes(x.name)) myKitchen.seasonings.push(x.name);
+        saveKitchen();
+      } else if (!ingredients.includes(x.name)) {
+        ingredients.push(x.name);
+        renderIngredients();
+      }
+      if (isLeverLocked) {
+        showSafetyBanner('info', `⏳ <b>${escapeHtml(josa(x.name, '을', '를'))}</b> 추가해 두었어요. 쿨타임이 끝나면 레버를 다시 당겨 주세요.`);
+        return;
+      }
+      pullVendingLever(false);
+    }
+
     function renderTicketCard(r) {
+      lastSuggestions = suggestOneMore(r.input_ingredients || [], getRecipeKitchen());
       const container = document.getElementById('ticketContainer');
       container.classList.remove('ticket-anim');
       void container.offsetWidth;
@@ -1184,6 +1239,8 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
             <div class="text-xs font-extrabold text-amber-400 mb-1">💡 내 주방 맞춤형 맛 밸런스 치트키</div>
             <p class="text-xs text-amber-100/90 leading-relaxed">${escapeHtml(r.cheat_key)}</p>
           </div>
+
+          ${buildSuggestionBox()}
         </div>
       `;
     }
