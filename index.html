@@ -604,7 +604,10 @@
       seasonings: ['간장', '설탕', '고추장', '쌈장', '식용유', '식초', '라면스프']
     }));
     let savedRecipes = JSON.parse(localStorage.getItem('my_saved_recipes_v5') || '[]');
-    let recipeCache = JSON.parse(localStorage.getItem('my_recipe_cache_v5') || '{}');
+    // 엔진이 바뀌면 캐시 버전을 올려 예전 레시피가 다시 나오지 않게 함
+    const RECIPE_CACHE_KEY = 'my_recipe_cache_v6';
+    localStorage.removeItem('my_recipe_cache_v5');
+    let recipeCache = JSON.parse(localStorage.getItem(RECIPE_CACHE_KEY) || '{}');
     let currentRecipe = null;
     let isLeverLocked = false;
 
@@ -773,112 +776,224 @@
       clearInterval(timer);
       currentRecipe = recipeResult;
       recipeCache[cacheKey] = recipeResult;
-      localStorage.setItem('my_recipe_cache_v5', JSON.stringify(recipeCache));
+      localStorage.setItem(RECIPE_CACHE_KEY, JSON.stringify(recipeCache));
 
       setActiveSlot(recipeResult.framework_id);
       statusEl.textContent = `매칭 완료: ${recipeResult.framework_name}`;
       renderTicketCard(recipeResult);
     }
 
+    // 재료·도구 이름으로 알아보는 키워드 (투입하지 않은 재료나 없는 도구를 레시피에 요구하지 않기 위해 사용)
+    const BINDER_RE = /달걀|계란|부침가루|튀김가루|밀가루|전분/;
+    const FLOUR_RE = /부침가루|튀김가루|밀가루|전분/;
+    const NOODLE_RE = /라면|면|사리|우동|국수|파스타|스파게티|떡/;
+    const RICE_RE = /밥/;
+    const SOUP_HINT_RE = /김치|두부|참치|찌개|국|된장|어묵/;
+    // 메인 소스로 쓰지 않는 기본 양념 (나머지는 소스로 취급)
+    const NON_SAUCE = ['설탕', '식용유', '참기름', '식초', '후추', '소금', '다진마늘', '마요네즈'];
+
+    // 받침에 맞는 조사 (예: 당근을 / 양파를, 전분으로 / 달걀로)
+    function josa(word, withBatchim, withoutBatchim) {
+      const text = String(word);
+      const code = text.charCodeAt(text.length - 1) - 0xAC00;
+      const jong = code >= 0 && code <= 11171 ? code % 28 : 0;
+      // '으로/로'는 ㄹ 받침 뒤에서도 '로'
+      const useBatchim = withBatchim === '으로' ? (jong !== 0 && jong !== 8) : jong !== 0;
+      return text + (useBatchim ? withBatchim : withoutBatchim);
+    }
+    // 대괄호로 감싼 단어 + 조사 (예: [당근]을)
+    const josaB = (word, withBatchim, withoutBatchim) => `[${word}]` + josa(word, withBatchim, withoutBatchim).slice(String(word).length);
+
+    function detectToolSet(tools) {
+      const has = (re) => tools.some(t => re.test(t));
+      return {
+        pan: has(/팬|웍/),
+        pot: has(/냄비|뚝배기|솥/),
+        microwave: has(/전자레인지/),
+        airfryer: has(/에어프라이어|오븐/),
+        kettle: has(/포트|주전자/)
+      };
+    }
+
+    // 지금 재료·도구로 만들 수 있는 조리 틀 (1 부침, 2 볶음, 3 찌개, 4 면·볶음밥)
+    function getFeasibleFrameworks(ings, kitchen) {
+      const t = detectToolSet(kitchen.tools);
+      const joined = ings.join(' ');
+      return {
+        1: BINDER_RE.test(joined) && t.pan,
+        2: true,
+        3: t.pot,
+        4: (NOODLE_RE.test(joined) || RICE_RE.test(joined)) && (t.pan || t.pot)
+      };
+    }
+
     // 내 주방 맞춤형 스마트 엔진
     function generateWithKitchenAwareEngine(ings, kitchen, excludeId) {
       const joined = ings.join(' ');
-      const allIngsText = ings.join(', ');
-      const titleMain = ings.slice(0, 2).join(' ');
-
-      const hasPan = kitchen.tools.some(t => t.includes('프라이팬'));
-      const hasPot = kitchen.tools.some(t => t.includes('냄비'));
-      const hasMicrowave = kitchen.tools.some(t => t.includes('전자레인지'));
+      const tool = detectToolSet(kitchen.tools);
+      const feasible = getFeasibleFrameworks(ings, kitchen);
+      const riceItem = ings.find(i => RICE_RE.test(i));
+      // 밥은 썰거나 볶지 않고 마지막에 곁들이므로 손질 대상에서 뺌
+      const cookIngs = riceItem && ings.length > 1 ? ings.filter(i => i !== riceItem) : ings;
+      const cookText = cookIngs.join(', ');
 
       const sList = kitchen.seasonings;
-      const pickSeasoning = (preferred, fallback) => {
-        for (const p of preferred) {
-          if (sList.includes(p)) return p;
-        }
-        return sList[0] || fallback;
-      };
+      const pick = (preferred) => preferred.find(p => sList.includes(p)) || null;
+      const mainSauce = pick(['쌈장', '굴소스', '고추장', '간장', '된장', '케첩']) || sList.find(s => !NON_SAUCE.includes(s)) || null;
+      const soupBase = pick(['고추장', '된장', '라면스프', '간장']);
+      const oilBase = pick(['식용유', '참기름']);
+      const salt = pick(['소금', '간장', '라면스프']);
+      const sugar = sList.includes('설탕') ? '설탕 반 스푼' : null;
+      const oilText = oilBase ? `${josa(oilBase, '을', '를')} 두르고` : '물 2스푼을 두르고';
+      const mix = (sauce) => [sauce ? `${sauce} 1스푼` : null, sugar, '물 2스푼'].filter(Boolean).join(' + ');
 
-      const mainSauce = pickSeasoning(['쌈장', '굴소스', '고추장', '간장', '된장'], '소금/간장');
-      const sweetSauce = sList.includes('설탕') ? '설탕 반 스푼' : '채소 자체 단맛';
-      const soupBase = pickSeasoning(['고추장', '된장', '라면스프', '간장'], '간장');
-      const oilBase = pickSeasoning(['식용유', '참기름', '마요네즈'], '물 2스푼(워터소테)');
+      // 재료에 맞는 조리 틀을 먼저 고르고, 만들 수 없거나 제외된 틀은 건너뜀
+      let preferred = 2;
+      if (NOODLE_RE.test(joined)) preferred = 4;
+      else if (BINDER_RE.test(joined)) preferred = 1;
+      else if (SOUP_HINT_RE.test(joined)) preferred = 3;
+      const candidates = [preferred, 2, 1, 3, 4].filter((id, i, arr) => arr.indexOf(id) === i && feasible[id]);
+      const fwId = candidates.find(id => id !== excludeId) || candidates[0];
 
-      let fwId = 2;
-      if (/라면|면|사리|우동|순대/.test(joined)) fwId = 4;
-      else if (/김치|두부|참치|찌개|국/.test(joined) && hasPot) fwId = 3;
-      else if (/달걀|계란|당근|옥수수|소시지/.test(joined) && hasPan) fwId = 1;
-      else fwId = 2;
+      const stirTool = tool.pan ? '프라이팬' : (tool.pot ? '냄비' : null);
+      let template;
 
-      if (excludeId && fwId === excludeId) fwId = (fwId % 4) + 1;
-
-      const activeTool = hasPan ? '프라이팬' : (hasPot ? '냄비' : (hasMicrowave ? '전자레인지 내열용기' : kitchen.tools[0]));
-
-      const templates = {
-        1: {
+      if (fwId === 1) {
+        const binder = ings.find(i => BINDER_RE.test(i));
+        const others = ings.filter(i => i !== binder);
+        const othersText = others.join(', ');
+        template = {
           framework_id: 1,
           framework_name: '① 물리적 결합 (달걀·부침)',
-          dish_name: `${titleMain} 노릇 한판 응집전`,
-          one_line_pitch: `겉도는 [${allIngsText}]를 달걀/반죽 접착제로 묶어 [${activeTool}] 하나로 완성!`,
-          used_tool: activeTool,
-          used_seasonings: [oilBase, pickSeasoning(['소금', '간장', '라면스프'], '소금 약간'), pickSeasoning(['케첩', '간장', '식초'], '간장 소스')],
+          dish_name: `${others.slice(0, 2).join(' ') || binder} 노릇 한판 응집전`,
+          one_line_pitch: others.length
+            ? `겉도는 ${josaB(othersText, '을', '를')} ${josaB(binder, '으로', '로')} 묶어 [프라이팬] 하나로 완성!`
+            : `[${binder}]만으로 [프라이팬] 하나로 노릇하게 완성!`,
+          used_tool: '프라이팬',
+          used_seasonings: [oilBase, salt].filter(Boolean),
           steps: [
-            `[잘게 다지기] 준비한 재료(${allIngsText})를 서로 잘 뭉쳐지도록 한입보다 작게 송송 썰어 볼에 담습니다.`,
-            `[물리적 반죽 결합] 달걀이나 부침가루와 ${pickSeasoning(['소금', '간장'], '소금')}을 넣고 재료에 끈기가 생기게 섞습니다.`,
-            `[${activeTool} 조리] ${activeTool}에 ${oilBase}를 두르고 중약불에서 앞뒤로 노릇하게 익혀 한 판으로 완성합니다.`
+            others.length
+              ? `[잘게 다지기] ${josa(othersText, '을', '를')} 서로 잘 뭉쳐지도록 작게 송송 썰어 볼에 담습니다.`
+              : `[준비] ${josa(binder, '을', '를')} 볼에 담습니다.`,
+            `[반죽 결합] ${josa(binder, '을', '를')} 넣고${FLOUR_RE.test(binder) ? ' 물을 조금씩 부어 가며' : ''}${salt ? ` ${salt} 약간과 함께` : ''} 끈기가 생기게 섞습니다.`,
+            `[프라이팬 조리] 프라이팬에 ${oilText} 중약불에서 앞뒤로 3분씩 노릇하게 부칩니다.`
           ],
           cheat_key: sList.includes('케첩')
-            ? '내 주방에 있는 케첩이나 마요네즈를 살짝 뿌려 먹으면 반찬 겸 안주로 완벽합니다!'
-            : `내 주방에 케첩이 없어도 괜찮습니다! 보유하신 [${mainSauce}]에 ${sList.includes('식초') ? '식초 두 방울' : '물 약간'}을 섞어 찍어 드세요.`
-        },
-        2: {
-          framework_id: 2,
-          framework_name: '② 코팅형 결합 (볶음·덮밥)',
-          dish_name: `${mainSauce} 코팅 ${titleMain} 덮밥`,
-          one_line_pitch: `내 주방에 있는 [${mainSauce}]와 [${oilBase}]만으로 [${allIngsText}]를 쫀득하게 코팅한 한 그릇!`,
-          used_tool: activeTool,
-          used_seasonings: [oilBase, `${mainSauce} 1스푼`, sweetSauce],
-          steps: [
-            `[한입 손질] 투입한 재료(${allIngsText})를 열이 골고루 통하도록 비슷한 크기로 깍둑썰기합니다.`,
-            `[${activeTool} 볶기] ${activeTool}에 ${oilBase}를 두르고 단단한 재료부터 넣어 노릇하게 구워 풍미를 끌어올립니다.`,
-            `[${mainSauce} 코팅] 불을 약하게 줄인 뒤 내 주방의 [${mainSauce} 1스푼 + ${sweetSauce} + 물 2스푼]을 넣고 윤기 나게 코팅해 밥 위에 얹습니다.`
-          ],
-          cheat_key: sList.includes('식초')
-            ? `맛이 살짝 무겁거나 텁텁할 때 보유 중인 [식초]를 딱 2방울만 떨어뜨리면 감칠맛이 확 살아납니다!`
-            : `내 주방의 [${mainSauce}] 간이 세다면 밥이나 채소 비중을 늘리고 참기름이나 후추로 마무리해 보세요!`
-        },
-        3: {
+            ? '내 주방에 있는 케첩을 살짝 뿌려 먹으면 반찬 겸 안주로 완벽합니다!'
+            : mainSauce
+              ? `보유하신 [${mainSauce}]에 ${sList.includes('식초') ? '식초 두 방울' : '물 약간'}을 섞어 찍어 드세요.`
+              : '양념 없이도 고소합니다. 얇게 부칠수록 바삭해집니다!'
+        };
+      } else if (fwId === 3) {
+        template = {
           framework_id: 3,
           framework_name: '③ 국물형 결합 (짜글이·찌개)',
-          dish_name: `${soupBase} 베이스 ${titleMain} 진국 짜글이`,
-          one_line_pitch: `[${allIngsText}]를 자작한 국물에 다 넣고 내 주방의 [${soupBase}]로 맛을 하나로 통일!`,
-          used_tool: hasPot ? '냄비' : activeTool,
-          used_seasonings: [`${soupBase} 1스푼`, sweetSauce, pickSeasoning(['다진마늘', '간장', '라면스프'], '기본 양념')],
+          dish_name: `${soupBase ? soupBase + ' 베이스' : '맑은'} ${cookIngs.slice(0, 2).join(' ')} 진국 짜글이`,
+          one_line_pitch: `${josaB(cookText, '을', '를')} 자작한 국물에 다 넣고 ${soupBase ? `내 주방의 ${josaB(soupBase, '으로', '로')}` : '재료에서 우러난 맛으로'} 하나로 통일!`,
+          used_tool: '냄비',
+          used_seasonings: [soupBase ? `${soupBase} 1스푼` : null, sugar, pick(['다진마늘'])].filter(Boolean),
           steps: [
-            `[재료 깔기] ${hasPot ? '냄비' : activeTool} 바닥에 손질한 재료(${allIngsText})를 차곡차곡 깔아줍니다.`,
-            `[자작한 양념 배합] 재료가 반쯤 잠길 만큼 물을 붓고, 내 주방에 있는 [${soupBase} 1스푼 + ${sweetSauce}]을 풀어 넣습니다.`,
-            `[걸쭉하게 졸이기] 국물이 자작해지면서 모든 재료에서 우러난 맛이 하나로 합쳐질 때까지 중강불에서 바글바글 끓여냅니다.`
+            `[재료 깔기] ${josa(cookText, '을', '를')} 한입 크기로 썰어 냄비 바닥에 차곡차곡 깔아줍니다.`,
+            `[자작한 양념 배합] 재료가 반쯤 잠길 만큼 물을 붓고${soupBase ? `, [${[soupBase + ' 1스푼', sugar].filter(Boolean).join(' + ')}]을 풀어 넣습니다.` : ' 뚜껑을 덮습니다.'}`,
+            `[걸쭉하게 졸이기] 중강불에서 10분 바글바글 끓여 국물을 자작하게 졸입니다.${riceItem ? ` ${josa(riceItem, '과', '와')} 함께 냅니다.` : ''}`
           ],
           cheat_key: sList.includes('라면스프')
-            ? '내 주방에 보유 중인 [라면스프]를 1/3봉지만 살짝 털어 넣으면 식당에서 파는 깊은 감칠맛이 즉시 완성됩니다!'
-            : `국물 간이 부족할 땐 보유하신 [${mainSauce}]를 반 스푼만 추가해 밥에 쓱쓱 비벼 드세요!`
-        },
-        4: {
+            ? '내 주방에 보유 중인 [라면스프]를 1/3봉지만 살짝 털어 넣으면 깊은 감칠맛이 즉시 완성됩니다!'
+            : mainSauce && mainSauce !== soupBase
+              ? `국물 간이 부족할 땐 보유하신 ${josaB(mainSauce, '을', '를')} 반 스푼만 추가해 보세요!`
+              : '간이 심심하면 국물을 조금 더 졸여 맛을 진하게 모아 보세요!'
+        };
+      } else if (fwId === 4) {
+        const base = ings.find(i => NOODLE_RE.test(i)) || riceItem;
+        const isNoodle = NOODLE_RE.test(base);
+        const others = ings.filter(i => i !== base);
+        const othersText = others.join(', ');
+        const sauce4 = pick(['라면스프', '간장', '고추장', '쌈장', '굴소스']) || mainSauce;
+        const finishMix = [sauce4 ? `${sauce4} 1스푼` : null, sugar].filter(Boolean).join(' + ');
+        template = isNoodle ? {
           framework_id: 4,
           framework_name: '④ 토핑형 결합 (면·간편식)',
-          dish_name: `${titleMain} 풀토핑 화구 볶음면`,
-          one_line_pitch: `면·간편식 베이스 위에 [${allIngsText}]를 고명 사리로 흡수시켜 [${activeTool}] 하나로 소생!`,
-          used_tool: activeTool,
-          used_seasonings: [pickSeasoning(['라면스프', '간장', '고추장', '쌈장'], '라면스프/간장'), sweetSauce, oilBase],
+          dish_name: `${others.slice(0, 2).join(' ')} 풀토핑 ${base} 볶음면`.trim(),
+          one_line_pitch: `[${base}] 위에 ${othersText ? `${josaB(othersText, '을', '를')} 토핑으로 얹어` : '보유 양념만으로'} [${stirTool}] 하나로 소생!`,
+          used_tool: stirTool,
+          used_seasonings: [sauce4, sugar, oilBase].filter(Boolean),
           steps: [
-            `[베이스 & 토핑 준비] 면 사리가 있다면 설익게 준비하고, 나머지 재료(${allIngsText})는 한입 크기로 썹니다.`,
-            `[토핑 불향 입히기] ${activeTool}에 ${oilBase}를 두르고 손질한 부재료들을 먼저 볶아 고소한 향을 냅니다.`,
-            `[소스 합체] 면(또는 즉석밥)과 물 3스푼, 내 주방의 [${pickSeasoning(['라면스프', '고추장', '간장', '쌈장'], '기본양념')}]와 ${sweetSauce}을 넣고 빠르게 볶아냅니다.`
+            `[면 삶기] ${stirTool}에 물을 끓여 ${josa(base, '을', '를')} 2분만 설익게 삶아 건지고, 면수 3스푼을 남겨 둡니다.`,
+            othersText
+              ? `[토핑 볶기] ${stirTool}에 ${oilText} ${josa(othersText, '을', '를')} 한입 크기로 썰어 2분 볶습니다.`
+              : `[팬 달구기] ${stirTool}의 물기를 닦고 ${oilText} 중불로 달굽니다.`,
+            `[소스 합체] 면과 면수 3스푼${finishMix ? `, [${finishMix}]` : ''}을 넣고 1분 빠르게 볶아냅니다.`
           ],
-          cheat_key: '국물 라면이라도 물을 가득 붓지 않고 면수 3스푼 + 보유 양념으로 볶아내면 남은 배달 음식이나 채소가 완벽한 요리 토핑으로 변신합니다!'
+          cheat_key: '국물 라면이라도 물을 가득 붓지 않고 면수 3스푼 + 보유 양념으로 볶아내면 남은 재료가 완벽한 토핑으로 변신합니다!'
+        } : {
+          framework_id: 4,
+          framework_name: '④ 토핑형 결합 (면·간편식)',
+          dish_name: `${others.slice(0, 2).join(' ')} 볶음밥`.trim(),
+          one_line_pitch: `[${base}]에 ${othersText ? `${josaB(othersText, '을', '를')} 잘게 다져 넣고` : '보유 양념만 넣고'} [${stirTool}] 하나로 볶아낸 한 그릇!`,
+          used_tool: stirTool,
+          used_seasonings: [sauce4, oilBase].filter(Boolean),
+          steps: [
+            othersText ? `[잘게 다지기] ${josa(othersText, '을', '를')} 밥알 크기에 가깝게 잘게 다집니다.` : `[밥 풀기] ${josa(base, '을', '를')} 주걱으로 미리 풀어 둡니다.`,
+            `[재료 볶기] ${stirTool}에 ${oilText} ${othersText ? '다진 재료를 2분 볶습니다.' : '중불로 달굽니다.'}`,
+            `[밥 볶기] ${josa(base, '을', '를')} 넣고${sauce4 ? ` ${sauce4} 1스푼으로 간해` : ''} 2분 더 고슬고슬하게 볶습니다.`
+          ],
+          cheat_key: '밥을 팬에 넓게 펴고 30초만 그대로 두면 바닥이 누룽지처럼 고소해집니다!'
+        };
+      } else {
+        // ② 볶음: 프라이팬·냄비가 없으면 전자레인지 → 에어프라이어 → 전기포트 순으로 조리법을 바꿈
+        const finish = riceItem ? `${riceItem} 위에 얹어 덮밥으로 냅니다.` : '접시에 담아 냅니다.';
+        const sauceMix = mix(mainSauce);
+        let usedTool, dishType, cookSteps;
+        if (stirTool) {
+          usedTool = stirTool;
+          dishType = '볶음';
+          cookSteps = [
+            `[${stirTool} 볶기] ${stirTool}에 ${oilText} 단단한 재료부터 넣어 중불에서 3분 노릇하게 볶습니다.`,
+            mainSauce || sugar
+              ? `[코팅] 불을 약하게 줄이고 [${sauceMix}]을 넣어 1분 더 윤기 나게 볶은 뒤 ${finish}`
+              : `[마무리] 1분 더 볶아 재료 겉면을 노릇하게 만든 뒤 ${finish}`
+          ];
+        } else if (tool.microwave) {
+          usedTool = '전자레인지';
+          dishType = '양념찜';
+          cookSteps = [
+            `[전자레인지 익히기] 내열용기에 재료와 [${sauceMix}]을 넣고 버무린 뒤, 랩을 씌우고 구멍을 2~3개 내어 3분 돌립니다.`,
+            `[마무리] 꺼내서 한 번 섞고 1분 더 돌려 ${finish}`
+          ];
+        } else if (tool.airfryer) {
+          usedTool = '에어프라이어';
+          dishType = '양념구이';
+          cookSteps = [
+            `[에어프라이어 굽기] 재료를 [${sauceMix}]에 버무려 종이호일에 펼치고 180도에서 10분 굽습니다.`,
+            `[마무리] 한 번 뒤집어 5분 더 구운 뒤 ${finish}`
+          ];
+        } else {
+          usedTool = '전기포트';
+          dishType = '양념무침';
+          cookSteps = [
+            '[데치기] 전기포트로 끓인 물을 재료가 잠기게 붓고 2분 뒤 물을 따라 냅니다.',
+            `[무치기] [${sauceMix}]을 넣고 골고루 버무려 ${finish}`
+          ];
         }
-      };
+        template = {
+          framework_id: 2,
+          framework_name: '② 코팅형 결합 (볶음·덮밥)',
+          dish_name: `${mainSauce ? mainSauce + ' 코팅' : '담백한'} ${cookIngs.slice(0, 2).join(' ')} ${riceItem ? '덮밥' : dishType}`,
+          one_line_pitch: mainSauce
+            ? `내 주방에 있는 [${mainSauce}]만으로 ${josaB(cookText, '을', '를')} 쫀득하게 코팅한 한 그릇!`
+            : `양념 없이 [${cookText}] 본연의 맛을 살린 한 그릇!`,
+          used_tool: usedTool,
+          used_seasonings: [stirTool ? oilBase : null, mainSauce ? `${mainSauce} 1스푼` : null, sugar].filter(Boolean),
+          steps: [`[한입 손질] ${josa(cookText, '을', '를')} 열이 골고루 통하도록 비슷한 크기로 깍둑썰기합니다.`, ...cookSteps],
+          cheat_key: sList.includes('식초')
+            ? '맛이 살짝 무겁거나 텁텁할 때 보유 중인 [식초]를 딱 2방울만 떨어뜨리면 감칠맛이 확 살아납니다!'
+            : mainSauce
+              ? `[${mainSauce}] 간이 세다면 채소 비중을 늘리고 물을 한 스푼 더 넣어 보세요!`
+              : '재료를 노릇하게 충분히 익히면 양념 없이도 단맛과 고소함이 올라옵니다!'
+        };
+      }
 
-      return { ...templates[fwId], input_ingredients: [...ings] };
+      return { ...template, input_ingredients: [...ings] };
     }
 
     async function generateWithGemini(ings, kitchen, excludeId) {
@@ -887,7 +1002,8 @@
 [내 주방 보유 조리도구]: ${kitchen.tools.join(', ')}
 [내 주방 보유 양념]: ${kitchen.seasonings.join(', ')}
 ${excludeId ? `[제외할 조리 틀]: framework_id ${excludeId}번은 제외하고 다른 번호(1~4)를 선택하세요.` : ''}
-반드시 내 주방 보유 도구와 양념만 사용하여 JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key)으로 응답하세요.`;
+반드시 내 주방 보유 도구와 양념만 사용하세요. [투입된 식재료]에 없는 재료(달걀, 밥, 면 등)는 요구하지 마세요. 물은 사용해도 됩니다.
+JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key)으로 응답하세요.`;
 
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
         method: 'POST',
