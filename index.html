@@ -401,6 +401,36 @@
     </div>
   </div>
 
+  <!-- 요리 모드: 단계를 큰 글씨로 하나씩 + 단계 타이머 + 화면 꺼짐 방지 -->
+  <div id="cookModeOverlay" class="fixed inset-0 z-50 bg-slate-950 hidden flex-col">
+    <div class="max-w-2xl w-full mx-auto flex flex-col h-full p-5 sm:p-8 gap-5">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-800 pb-4">
+        <div class="min-w-0">
+          <span id="cookStepBadge" class="text-xs font-extrabold text-orange-400">STEP 1 / 3</span>
+          <h3 id="cookDishName" class="text-base font-extrabold text-white truncate mt-0.5"></h3>
+        </div>
+        <button onclick="closeCookMode()" aria-label="요리 모드 닫기" class="shrink-0 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300">닫기 ✕</button>
+      </div>
+
+      <div id="cookTimerBar" class="hidden items-center justify-between gap-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl px-4 py-3">
+        <span id="cookTimerText" class="text-2xl font-extrabold text-amber-300 tabular-nums">00:00</span>
+        <button onclick="stopCookTimer()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300">타이머 끄기</button>
+      </div>
+
+      <div class="flex-1 flex flex-col justify-center gap-4 overflow-y-auto">
+        <div id="cookStepLabel" class="text-sm font-extrabold text-orange-400"></div>
+        <p id="cookStepText" class="text-2xl sm:text-3xl font-bold text-white leading-relaxed"></p>
+        <button id="cookTimerStartBtn" onclick="startCookTimer()" class="hidden self-start px-4 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-extrabold text-sm transition"></button>
+      </div>
+
+      <div class="flex gap-3 pt-4 border-t border-slate-800">
+        <button id="cookPrevBtn" onclick="moveCookStep(-1)" class="flex-1 py-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-sm font-bold text-slate-200 disabled:opacity-40">◀ 이전</button>
+        <button id="cookNextBtn" onclick="moveCookStep(1)" class="flex-[2] py-4 rounded-2xl bg-orange-500 hover:bg-orange-400 text-slate-950 text-base font-extrabold">다음 ▶</button>
+      </div>
+      <p id="cookWakeNote" class="text-[11px] text-slate-500 text-center"></p>
+    </div>
+  </div>
+
   <!-- MODAL 2: 나만의 짬처리 도감 -->
   <div id="savedModal" class="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm hidden items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 space-y-4">
@@ -1226,7 +1256,12 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
           </div>
 
           <div class="space-y-2.5">
-            <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">초간단 3단계 레시피</div>
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-xs font-extrabold text-slate-400 uppercase tracking-wider">초간단 3단계 레시피</div>
+              <button onclick="openCookMode()" class="px-3 py-1.5 rounded-lg bg-orange-500/20 hover:bg-orange-500/30 border border-orange-500/30 text-orange-300 text-xs font-extrabold transition">
+                🍳 요리 모드로 보기
+              </button>
+            </div>
             ${(r.steps || []).map((step, idx) => `
               <div class="flex gap-3 items-start bg-slate-900/70 border border-slate-800/90 p-3.5 rounded-xl">
                 <span class="w-6 h-6 rounded-full bg-orange-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">${idx + 1}</span>
@@ -1521,6 +1556,138 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       toggleAuthModal();
       pullVendingLever(false);
     }
+
+    // =========================================================================
+    // 5. 요리 모드 (단계 넘기기 · 단계 타이머 · 화면 꺼짐 방지)
+    // =========================================================================
+    let cookIndex = 0;
+    let cookTimer = null;   // { endAt, interval }
+    let wakeLock = null;
+
+    // "[프라이팬 볶기] 프라이팬에 ..." → 제목과 본문, 그리고 본문에 적힌 첫 'N분'
+    function parseCookStep(step) {
+      const m = String(step).match(/^\[(.+?)\]\s*(.*)$/);
+      const label = m ? m[1] : '';
+      const text = m ? m[2] : String(step);
+      const min = text.match(/(\d+)분/);
+      return { label, text, minutes: min ? Number(min[1]) : 0 };
+    }
+
+    async function requestWakeLock() {
+      const note = document.getElementById('cookWakeNote');
+      try {
+        if (!('wakeLock' in navigator)) throw new Error('unsupported');
+        wakeLock = await navigator.wakeLock.request('screen');
+        note.textContent = '요리 모드 동안 화면이 꺼지지 않아요.';
+      } catch (e) {
+        note.textContent = '이 브라우저는 화면 꺼짐 방지를 지원하지 않아요.';
+      }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock) wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+
+    function isCookModeOpen() {
+      return !document.getElementById('cookModeOverlay').classList.contains('hidden');
+    }
+
+    function openCookMode() {
+      if (!currentRecipe || !(currentRecipe.steps || []).length) return;
+      cookIndex = 0;
+      const el = document.getElementById('cookModeOverlay');
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+      document.getElementById('cookDishName').textContent = currentRecipe.dish_name || '';
+      renderCookStep();
+      requestWakeLock();
+    }
+
+    function closeCookMode() {
+      const el = document.getElementById('cookModeOverlay');
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+      stopCookTimer();
+      releaseWakeLock();
+    }
+
+    function renderCookStep() {
+      const steps = currentRecipe.steps;
+      const step = parseCookStep(steps[cookIndex]);
+      document.getElementById('cookStepBadge').textContent = `STEP ${cookIndex + 1} / ${steps.length}`;
+      document.getElementById('cookStepLabel').textContent = step.label;
+      document.getElementById('cookStepText').textContent = step.text;
+      const timerBtn = document.getElementById('cookTimerStartBtn');
+      timerBtn.classList.toggle('hidden', !step.minutes);
+      timerBtn.textContent = `⏱️ ${step.minutes}분 타이머 시작`;
+      document.getElementById('cookPrevBtn').disabled = cookIndex === 0;
+      document.getElementById('cookNextBtn').textContent = cookIndex === steps.length - 1 ? '다 만들었어요 🎉' : '다음 ▶';
+    }
+
+    function moveCookStep(delta) {
+      const next = cookIndex + delta;
+      if (next < 0) return;
+      if (next >= currentRecipe.steps.length) return closeCookMode();
+      cookIndex = next;
+      renderCookStep();
+    }
+
+    // 타이머는 단계를 넘겨도 계속 돌고, 요리 모드를 닫으면 멈춤
+    function startCookTimer() {
+      const { minutes } = parseCookStep(currentRecipe.steps[cookIndex]);
+      if (!minutes) return;
+      stopCookTimer();
+      cookTimer = { endAt: Date.now() + minutes * 60000, interval: setInterval(tickCookTimer, 250) };
+      const bar = document.getElementById('cookTimerBar');
+      bar.classList.remove('hidden');
+      bar.classList.add('flex');
+      tickCookTimer();
+    }
+
+    function tickCookTimer() {
+      if (!cookTimer) return;
+      const left = Math.max(0, cookTimer.endAt - Date.now());
+      const sec = Math.ceil(left / 1000);
+      const text = document.getElementById('cookTimerText');
+      text.textContent = `${String(Math.floor(sec / 60)).padStart(2, '0')}:${String(sec % 60).padStart(2, '0')}`;
+      if (left === 0) {
+        clearInterval(cookTimer.interval);
+        cookTimer = null;
+        text.textContent = '⏰ 시간 됐어요!';
+        alertTimerDone();
+      }
+    }
+
+    function stopCookTimer() {
+      if (cookTimer) clearInterval(cookTimer.interval);
+      cookTimer = null;
+      const bar = document.getElementById('cookTimerBar');
+      bar.classList.add('hidden');
+      bar.classList.remove('flex');
+    }
+
+    // 타이머 종료 알림: 진동 + 짧은 삐 소리 3번 (지원하는 기기에서만)
+    function alertTimerDone() {
+      try { navigator.vibrate?.([300, 150, 300, 150, 300]); } catch (e) {}
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.4, 0.8].forEach(t => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.frequency.value = 880;
+          gain.gain.value = 0.2;
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(ctx.currentTime + t);
+          osc.stop(ctx.currentTime + t + 0.25);
+        });
+      } catch (e) {}
+    }
+
+    // 다른 앱에 다녀오면 화면 꺼짐 방지가 풀리므로 다시 요청
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && isCookModeOpen()) requestWakeLock();
+    });
 
     // 초기 부트스트랩
     window.addEventListener('DOMContentLoaded', () => {
