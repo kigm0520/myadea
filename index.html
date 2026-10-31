@@ -642,8 +642,8 @@
     myKitchen = { customTools: [], customSeasonings: [], avoid: [], ...myKitchen };
     let savedRecipes = JSON.parse(localStorage.getItem('my_saved_recipes_v5') || '[]');
     // 엔진이 바뀌면 캐시 버전을 올려 예전 레시피가 다시 나오지 않게 함
-    const RECIPE_CACHE_KEY = 'my_recipe_cache_v6';
-    localStorage.removeItem('my_recipe_cache_v5');
+    const RECIPE_CACHE_KEY = 'my_recipe_cache_v7';
+    ['my_recipe_cache_v5', 'my_recipe_cache_v6'].forEach(k => localStorage.removeItem(k));
     let recipeCache = JSON.parse(localStorage.getItem(RECIPE_CACHE_KEY) || '{}');
     let currentRecipe = null;
     let isLeverLocked = false;
@@ -904,6 +904,8 @@
         template = {
           framework_id: 1,
           framework_name: '① 물리적 결합 (달걀·부침)',
+          time_minutes: 12,
+          difficulty: '보통',
           dish_name: `${others.slice(0, 2).join(' ') || binder} 노릇 한판 응집전`,
           one_line_pitch: others.length
             ? `겉도는 ${josaB(othersText, '을', '를')} ${josaB(binder, '으로', '로')} 묶어 [프라이팬] 하나로 완성!`
@@ -927,6 +929,7 @@
         template = {
           framework_id: 3,
           framework_name: '③ 국물형 결합 (짜글이·찌개)',
+          time_minutes: 15,
           dish_name: `${soupBase ? soupBase + ' 베이스' : '맑은'} ${cookIngs.slice(0, 2).join(' ')} 진국 짜글이`,
           one_line_pitch: `${josaB(cookText, '을', '를')} 자작한 국물에 다 넣고 ${soupBase ? `내 주방의 ${josaB(soupBase, '으로', '로')}` : '재료에서 우러난 맛으로'} 하나로 통일!`,
           used_tool: '냄비',
@@ -952,6 +955,7 @@
         template = isNoodle ? {
           framework_id: 4,
           framework_name: '④ 토핑형 결합 (면·간편식)',
+          time_minutes: 10,
           dish_name: `${others.slice(0, 2).join(' ')} 풀토핑 ${base} 볶음면`.trim(),
           one_line_pitch: `[${base}] 위에 ${othersText ? `${josaB(othersText, '을', '를')} 토핑으로 얹어` : '보유 양념만으로'} [${stirTool}] 하나로 소생!`,
           used_tool: stirTool,
@@ -967,6 +971,7 @@
         } : {
           framework_id: 4,
           framework_name: '④ 토핑형 결합 (면·간편식)',
+          time_minutes: 10,
           dish_name: `${others.slice(0, 2).join(' ')} 볶음밥`.trim(),
           one_line_pitch: `[${base}]에 ${othersText ? `${josaB(othersText, '을', '를')} 잘게 다져 넣고` : '보유 양념만 넣고'} [${stirTool}] 하나로 볶아낸 한 그릇!`,
           used_tool: stirTool,
@@ -982,10 +987,11 @@
         // ② 볶음: 프라이팬·냄비가 없으면 전자레인지 → 에어프라이어 → 전기포트 순으로 조리법을 바꿈
         const finish = riceItem ? `${riceItem} 위에 얹어 덮밥으로 냅니다.` : '접시에 담아 냅니다.';
         const sauceMix = mix(mainSauce);
-        let usedTool, dishType, cookSteps;
+        let usedTool, dishType, cookSteps, cookMinutes;
         if (stirTool) {
           usedTool = stirTool;
           dishType = '볶음';
+          cookMinutes = 10;
           cookSteps = [
             `[${stirTool} 볶기] ${stirTool}에 ${oilText} 단단한 재료부터 넣어 중불에서 3분 노릇하게 볶습니다.`,
             mainSauce || sugar
@@ -995,6 +1001,7 @@
         } else if (tool.microwave) {
           usedTool = '전자레인지';
           dishType = '양념찜';
+          cookMinutes = 8;
           cookSteps = [
             `[전자레인지 익히기] 내열용기에 재료와 [${sauceMix}]을 넣고 버무린 뒤, 랩을 씌우고 구멍을 2~3개 내어 3분 돌립니다.`,
             `[마무리] 꺼내서 한 번 섞고 1분 더 돌려 ${finish}`
@@ -1002,6 +1009,7 @@
         } else if (tool.airfryer) {
           usedTool = '에어프라이어';
           dishType = '양념구이';
+          cookMinutes = 20;
           cookSteps = [
             `[에어프라이어 굽기] 재료를 [${sauceMix}]에 버무려 종이호일에 펼치고 180도에서 10분 굽습니다.`,
             `[마무리] 한 번 뒤집어 5분 더 구운 뒤 ${finish}`
@@ -1009,6 +1017,7 @@
         } else {
           usedTool = '전기포트';
           dishType = '양념무침';
+          cookMinutes = 8;
           cookSteps = [
             '[데치기] 전기포트로 끓인 물을 재료가 잠기게 붓고 2분 뒤 물을 따라 냅니다.',
             `[무치기] [${sauceMix}]을 넣고 골고루 버무려 ${finish}`
@@ -1017,6 +1026,7 @@
         template = {
           framework_id: 2,
           framework_name: '② 코팅형 결합 (볶음·덮밥)',
+          time_minutes: cookMinutes,
           dish_name: `${mainSauce ? mainSauce + ' 코팅' : '담백한'} ${cookIngs.slice(0, 2).join(' ')} ${riceItem ? '덮밥' : dishType}`,
           one_line_pitch: mainSauce
             ? `내 주방에 있는 [${mainSauce}]만으로 ${josaB(cookText, '을', '를')} 쫀득하게 코팅한 한 그릇!`
@@ -1032,7 +1042,13 @@
         };
       }
 
-      return { ...template, input_ingredients: [...ings] };
+      // 인분: 밥을 뺀 재료가 4가지 이상이면 2인분으로 봄
+      return {
+        difficulty: '쉬움',
+        ...template,
+        servings: cookIngs.length >= 4 ? '2인분' : '1인분',
+        input_ingredients: [...ings]
+      };
     }
 
     async function generateWithGemini(ings, kitchen, excludeId) {
@@ -1043,7 +1059,7 @@
 ${kitchen.avoid.length ? `[못 먹는 재료(알레르기·비선호)]: ${kitchen.avoid.join(', ')} — 이 재료와 이 재료가 들어간 양념은 절대 사용하지 마세요.` : ''}
 ${excludeId ? `[제외할 조리 틀]: framework_id ${excludeId}번은 제외하고 다른 번호(1~4)를 선택하세요.` : ''}
 반드시 내 주방 보유 도구와 양념만 사용하세요. [투입된 식재료]에 없는 재료(달걀, 밥, 면 등)는 요구하지 마세요. 물은 사용해도 됩니다.
-JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key)으로 응답하세요.`;
+JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key, servings('1인분' 형식), time_minutes(숫자), difficulty('쉬움'|'보통'|'어려움'))으로 응답하세요.`;
 
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`, {
         method: 'POST',
@@ -1103,6 +1119,18 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       `).join('');
     }
 
+    function buildRecipeMeta(r) {
+      const items = [
+        r.servings ? `👤 ${escapeHtml(r.servings)}` : null,
+        Number(r.time_minutes) > 0 ? `⏱️ 약 ${Math.round(Number(r.time_minutes))}분` : null,
+        r.difficulty ? `🔰 ${escapeHtml(r.difficulty)}` : null
+      ].filter(Boolean);
+      if (!items.length) return '';
+      return `<div class="flex flex-wrap gap-1.5 mt-2.5">${items.map(t =>
+        `<span class="text-[11px] font-bold text-slate-200 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">${t}</span>`
+      ).join('')}</div>`;
+    }
+
     function renderTicketCard(r) {
       const container = document.getElementById('ticketContainer');
       container.classList.remove('ticket-anim');
@@ -1128,6 +1156,7 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
           <div>
             <h3 class="text-xl sm:text-2xl font-extrabold text-white">${escapeHtml(r.dish_name)}</h3>
             <p class="text-xs sm:text-sm text-slate-300 mt-1">${escapeHtml(r.one_line_pitch)}</p>
+            ${buildRecipeMeta(r)}
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 text-xs">
