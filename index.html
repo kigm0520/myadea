@@ -374,6 +374,22 @@
             </button>
           </div>
         </div>
+
+        <div class="space-y-2.5">
+          <div class="text-xs font-bold text-white flex items-center justify-between">
+            <span>🚫 못 먹는 재료 (알레르기 · 비선호)</span>
+            <span class="text-[11px] text-slate-400">레시피에서 빼고 만듭니다</span>
+          </div>
+          <div class="flex gap-2">
+            <input id="avoidInput" type="text" maxlength="20" placeholder="예: 오이, 땅콩, 마요네즈"
+              class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-rose-500"
+              onkeydown="if(event.key==='Enter'){ event.preventDefault(); addAvoidItem(); }" />
+            <button onclick="addAvoidItem()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-white shrink-0 transition">
+              + 등록
+            </button>
+          </div>
+          <div id="avoidTagList" class="flex flex-wrap gap-1.5"></div>
+        </div>
       </div>
 
       <div class="pt-6 border-t border-slate-800 mt-6 flex items-center justify-between gap-3">
@@ -623,7 +639,7 @@
       seasonings: ['간장', '설탕', '고추장', '쌈장', '식용유', '식초', '라면스프']
     }));
     // 예전에 저장된 프로필에는 없는 항목을 채움
-    myKitchen = { customTools: [], customSeasonings: [], ...myKitchen };
+    myKitchen = { customTools: [], customSeasonings: [], avoid: [], ...myKitchen };
     let savedRecipes = JSON.parse(localStorage.getItem('my_saved_recipes_v5') || '[]');
     // 엔진이 바뀌면 캐시 버전을 올려 예전 레시피가 다시 나오지 않게 함
     const RECIPE_CACHE_KEY = 'my_recipe_cache_v6';
@@ -698,7 +714,8 @@
       const sortedIngs = [...ings].sort().join('|');
       const sortedTools = [...kitchen.tools].sort().join('|');
       const sortedSeasonings = [...kitchen.seasonings].sort().join('|');
-      return `${sortedIngs}__${sortedTools}__${sortedSeasonings}__ex:${excludeId || 0}`;
+      const sortedAvoid = [...(kitchen.avoid || [])].sort().join('|');
+      return `${sortedIngs}__${sortedTools}__${sortedSeasonings}__no:${sortedAvoid}__ex:${excludeId || 0}`;
     }
 
     function lockLeverWithCooldown() {
@@ -731,7 +748,8 @@
       }
 
       const excludeId = (excludeCurrent && currentRecipe) ? currentRecipe.framework_id : null;
-      const cacheKey = buildCacheKey(ingredients, myKitchen, excludeId);
+      const kitchen = getRecipeKitchen();
+      const cacheKey = buildCacheKey(ingredients, kitchen, excludeId);
       const simulateError = document.getElementById('simulateErrorToggle')?.checked;
 
       // 1. 동일 조합 캐시 방어
@@ -768,12 +786,12 @@
 
         if (!hasCoinsLeft && !isInitialLoad) {
           await new Promise(r => setTimeout(r, 450));
-          recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+          recipeResult = generateWithKitchenAwareEngine(ingredients, kitchen, excludeId);
           recipeResult.engine_badge = '무제한 안전망 엔진 (비용 0원)';
           showSafetyBanner('quota', '🛡️ <b>[일일 무료 AI 코인 5회 소진]</b> API 과금을 원천 차단하고 <b>내장 주방 맞춤형 스마트 엔진(무료·무제한)</b>으로 자동 전환하여 처방했습니다!');
         } else if (geminiKey) {
           recipeResult = await Promise.race([
-            generateWithGemini(ingredients, myKitchen, excludeId),
+            generateWithGemini(ingredients, kitchen, excludeId),
             new Promise((_, reject) => setTimeout(() => reject(new Error('API_TIMEOUT')), API_TIMEOUT_MS))
           ]);
           recipeResult.engine_badge = 'Gemini 2.5 Flash AI';
@@ -781,7 +799,7 @@
           showSafetyBanner('info', '✨ <b>[AI 맞춤 생성 완료]</b> 오늘 무료 AI 코인 1개를 사용하여 레시피를 생성했습니다.');
         } else {
           await new Promise(r => setTimeout(r, 480));
-          recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+          recipeResult = generateWithKitchenAwareEngine(ingredients, kitchen, excludeId);
           recipeResult.engine_badge = '스마트 규칙 엔진 (AI 코인 시뮬레이션)';
           if (!isInitialLoad) {
             consumeOneQuotaCoin();
@@ -789,7 +807,7 @@
           }
         }
       } catch (err) {
-        recipeResult = generateWithKitchenAwareEngine(ingredients, myKitchen, excludeId);
+        recipeResult = generateWithKitchenAwareEngine(ingredients, kitchen, excludeId);
         recipeResult.engine_badge = '비상 안전망 엔진 (Auto-Fallback)';
         showSafetyBanner('fallback', '🚨 <b>[서버 장애 자동 복구 작동]</b> AI 응답 지연/오류를 감지하여 <b>코인 차감 없이 내장 안전망 엔진</b>이 즉시 대체 레시피를 배출했습니다!');
       }
@@ -1022,6 +1040,7 @@
 [투입된 식재료]: ${ings.join(', ')}
 [내 주방 보유 조리도구]: ${kitchen.tools.join(', ')}
 [내 주방 보유 양념]: ${kitchen.seasonings.join(', ')}
+${kitchen.avoid.length ? `[못 먹는 재료(알레르기·비선호)]: ${kitchen.avoid.join(', ')} — 이 재료와 이 재료가 들어간 양념은 절대 사용하지 마세요.` : ''}
 ${excludeId ? `[제외할 조리 틀]: framework_id ${excludeId}번은 제외하고 다른 번호(1~4)를 선택하세요.` : ''}
 반드시 내 주방 보유 도구와 양념만 사용하세요. [투입된 식재료]에 없는 재료(달걀, 밥, 면 등)는 요구하지 마세요. 물은 사용해도 됩니다.
 JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_seasonings, steps(길이3), cheat_key)으로 응답하세요.`;
@@ -1179,14 +1198,23 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
         `;
       }).join('');
 
+      document.getElementById('avoidTagList').innerHTML = myKitchen.avoid.length
+        ? myKitchen.avoid.map((a, i) => `
+            <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+              <span>${escapeHtml(a)}</span>
+              <button onclick="removeAvoidItem(${i})" aria-label="${escapeHtml(a)} 삭제" class="text-rose-400 hover:text-white font-extrabold">✕</button>
+            </span>`).join('')
+        : '<span class="text-[11px] text-slate-500">등록된 재료가 없습니다.</span>';
+
       document.getElementById('seasoningOptionsGrid').innerHTML = getAllSeasonings().map((s, i) => {
         const active = myKitchen.seasonings.includes(s.name);
+        const blocked = isAvoided(s.name);
         return `
           <div class="relative">
             <button onclick="toggleSeasoningAt(${i})" class="w-full py-2.5 px-3 rounded-xl border text-xs transition text-center ${
               active ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
             }">
-              ${active ? '✓ ' : ''}${escapeHtml(s.name)}
+              ${active ? '✓ ' : ''}${escapeHtml(s.name)}${blocked ? ' 🚫' : ''}
             </button>
             ${s.custom ? `<button onclick="removeCustomItem('seasoning', ${i - ALL_SEASONINGS.length})" aria-label="${escapeHtml(s.name)} 삭제" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-[10px] text-slate-400 hover:text-rose-400">✕</button>` : ''}
           </div>
@@ -1247,11 +1275,28 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       saveKitchen();
     }
 
+    // 못 먹는 재료 이름이 들어 있는 항목 (예: '오이'를 등록하면 '오이지'도 해당)
+    function isAvoided(name) {
+      return myKitchen.avoid.some(a => name.includes(a));
+    }
+
+    // 못 먹는 재료를 빼고, 뺀 것이 있으면 알려 줌
+    function filterAvoided(items) {
+      const blocked = items.filter(isAvoided);
+      if (blocked.length) alert(`🚫 못 먹는 재료로 등록되어 있어 뺐습니다: ${blocked.join(', ')}`);
+      return items.filter(i => !isAvoided(i));
+    }
+
+    // 레시피를 만들 때 쓰는 주방: 못 먹는 재료가 들어간 양념은 보유 목록에서 뺌
+    function getRecipeKitchen() {
+      return { ...myKitchen, seasonings: myKitchen.seasonings.filter(s => !isAvoided(s)) };
+    }
+
     function addIngredientsFromInput() {
       const input = document.getElementById('ingInput');
       const raw = input.value.trim();
       if (!raw) return;
-      raw.split(/[,]+/).map(s => s.trim()).filter(Boolean).forEach(item => {
+      filterAvoided(raw.split(/[,]+/).map(s => s.trim()).filter(Boolean)).forEach(item => {
         if (!ingredients.includes(item)) ingredients.push(item);
       });
       input.value = '';
@@ -1259,10 +1304,30 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
     }
 
     function addOneIngredient(item) {
+      if (filterAvoided([item]).length === 0) return;
       if (!ingredients.includes(item)) {
         ingredients.push(item);
         renderIngredients();
       }
+    }
+
+    function addAvoidItem() {
+      const input = document.getElementById('avoidInput');
+      const name = input.value.trim().slice(0, 20);
+      if (!name) return;
+      if (myKitchen.avoid.includes(name)) return alert('이미 등록된 재료입니다!');
+      myKitchen.avoid.push(name);
+      input.value = '';
+      // 이미 넣어 둔 재료 중 해당하는 것은 바로 뺌
+      const before = ingredients.length;
+      ingredients = ingredients.filter(i => !isAvoided(i));
+      if (ingredients.length !== before) renderIngredients();
+      saveKitchen();
+    }
+
+    function removeAvoidItem(idx) {
+      myKitchen.avoid.splice(idx, 1);
+      saveKitchen();
     }
 
     function removeIngredient(idx) {
@@ -1276,7 +1341,7 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
     }
 
     function applyPreset(list) {
-      ingredients = [...list];
+      ingredients = filterAvoided([...list]);
       renderIngredients();
       pullVendingLever(false);
     }
@@ -1376,9 +1441,10 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       setupSingleFilePWA();
       renderQuotaDashboard();
       renderKitchenSelectors();
+      ingredients = ingredients.filter(i => !isAvoided(i));
       renderIngredients();
       updateSavedModalList();
-      pullVendingLever(false, true);
+      if (ingredients.length) pullVendingLever(false, true);
 
       // 최초 방문 시 3단계 온보딩 투어 자동 실행
       if (localStorage.getItem('vending_onboarding_done_v5') !== '1') {
