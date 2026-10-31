@@ -355,6 +355,25 @@
           </div>
           <div id="seasoningOptionsGrid" class="grid grid-cols-3 gap-2"></div>
         </div>
+
+        <div class="space-y-2.5">
+          <div class="text-xs font-bold text-white flex items-center justify-between">
+            <span>✏️ 목록에 없는 양념 · 도구 추가</span>
+            <span class="text-[11px] text-slate-400">추가하면 바로 보유로 체크</span>
+          </div>
+          <div class="flex gap-2">
+            <select id="customKindSelect" aria-label="추가할 종류" class="bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-xs text-white outline-none focus:border-orange-500">
+              <option value="seasoning">양념</option>
+              <option value="tool">도구</option>
+            </select>
+            <input id="customItemInput" type="text" maxlength="20" placeholder="예: 맛술, 카레가루, 뚝배기"
+              class="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-orange-500"
+              onkeydown="if(event.key==='Enter'){ event.preventDefault(); addCustomKitchenItem(); }" />
+            <button onclick="addCustomKitchenItem()" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-white shrink-0 transition">
+              + 추가
+            </button>
+          </div>
+        </div>
       </div>
 
       <div class="pt-6 border-t border-slate-800 mt-6 flex items-center justify-between gap-3">
@@ -603,6 +622,8 @@
       tools: ['프라이팬(1구 화구)', '냄비', '전자레인지'],
       seasonings: ['간장', '설탕', '고추장', '쌈장', '식용유', '식초', '라면스프']
     }));
+    // 예전에 저장된 프로필에는 없는 항목을 채움
+    myKitchen = { customTools: [], customSeasonings: [], ...myKitchen };
     let savedRecipes = JSON.parse(localStorage.getItem('my_saved_recipes_v5') || '[]');
     // 엔진이 바뀌면 캐시 버전을 올려 예전 레시피가 다시 나오지 않게 함
     const RECIPE_CACHE_KEY = 'my_recipe_cache_v6';
@@ -1023,6 +1044,11 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
     // =========================================================================
     // 4. UI 렌더링 & Empty State 온보딩 처리
     // =========================================================================
+    // 사용자가 입력한 이름을 innerHTML에 넣을 때 태그로 해석되지 않게 함
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
     function setActiveSlot(slotId) {
       for (let i = 1; i <= 4; i++) {
         const el = document.getElementById(`slot-${i}`);
@@ -1052,7 +1078,7 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       }
       tray.innerHTML = ingredients.map((ing, i) => `
         <span class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-orange-500/15 text-orange-300 border border-orange-500/30">
-          <span>${ing}</span>
+          <span>${escapeHtml(ing)}</span>
           <button onclick="removeIngredient(${i})" class="text-orange-400 hover:text-white font-extrabold">✕</button>
         </span>
       `).join('');
@@ -1068,31 +1094,31 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
         <div class="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <span class="px-3 py-1 rounded-full text-xs font-extrabold bg-orange-500/20 text-orange-400 border border-orange-500/30">
-              ${r.framework_name}
+              ${escapeHtml(r.framework_name)}
             </span>
             <div class="flex items-center gap-2">
               <span class="text-[11px] font-semibold text-slate-400 bg-slate-900 border border-slate-800 px-2.5 py-1 rounded-lg">
-                ⚙️ ${r.engine_badge || '스마트 엔진'}
+                ⚙️ ${escapeHtml(r.engine_badge || '스마트 엔진')}
               </span>
               <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg">
-                🔥 ${r.used_tool || myKitchen.tools[0]}
+                🔥 ${escapeHtml(r.used_tool || myKitchen.tools[0])}
               </span>
             </div>
           </div>
 
           <div>
-            <h3 class="text-xl sm:text-2xl font-extrabold text-white">${r.dish_name}</h3>
-            <p class="text-xs sm:text-sm text-slate-300 mt-1">${r.one_line_pitch}</p>
+            <h3 class="text-xl sm:text-2xl font-extrabold text-white">${escapeHtml(r.dish_name)}</h3>
+            <p class="text-xs sm:text-sm text-slate-300 mt-1">${escapeHtml(r.one_line_pitch)}</p>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-slate-900/90 border border-slate-800 rounded-xl p-3.5 text-xs">
             <div>
               <span class="text-slate-400 font-semibold block mb-1">🥕 투입된 식재료 (${r.input_ingredients.length}종)</span>
-              <span class="text-orange-300 font-bold">${r.input_ingredients.join(', ')}</span>
+              <span class="text-orange-300 font-bold">${escapeHtml(r.input_ingredients.join(', '))}</span>
             </div>
             <div>
               <span class="text-slate-400 font-semibold block mb-1">🧂 내 주방에서 꺼낼 양념 (추가구매 0원)</span>
-              <span class="text-amber-200 font-bold">${(r.used_seasonings || []).join(', ')}</span>
+              <span class="text-amber-200 font-bold">${escapeHtml((r.used_seasonings || []).join(', '))}</span>
             </div>
           </div>
 
@@ -1101,17 +1127,31 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
             ${(r.steps || []).map((step, idx) => `
               <div class="flex gap-3 items-start bg-slate-900/70 border border-slate-800/90 p-3.5 rounded-xl">
                 <span class="w-6 h-6 rounded-full bg-orange-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0 mt-0.5">${idx + 1}</span>
-                <p class="text-xs sm:text-sm text-slate-200 leading-relaxed">${step}</p>
+                <p class="text-xs sm:text-sm text-slate-200 leading-relaxed">${escapeHtml(step)}</p>
               </div>
             `).join('')}
           </div>
 
           <div class="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
             <div class="text-xs font-extrabold text-amber-400 mb-1">💡 내 주방 맞춤형 맛 밸런스 치트키</div>
-            <p class="text-xs text-amber-100/90 leading-relaxed">${r.cheat_key}</p>
+            <p class="text-xs text-amber-100/90 leading-relaxed">${escapeHtml(r.cheat_key)}</p>
           </div>
         </div>
       `;
+    }
+
+    // 기본 목록 + 사용자가 직접 추가한 항목
+    function getAllTools() {
+      return [...ALL_TOOLS, ...myKitchen.customTools.map(id => ({ id, icon: '🔧', custom: true }))];
+    }
+
+    function getAllSeasonings() {
+      return [...ALL_SEASONINGS.map(name => ({ name })), ...myKitchen.customSeasonings.map(name => ({ name, custom: true }))];
+    }
+
+    function saveKitchen() {
+      localStorage.setItem('my_kitchen_profile_v5', JSON.stringify(myKitchen));
+      renderKitchenSelectors();
     }
 
     function renderKitchenSelectors() {
@@ -1121,33 +1161,42 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       const previewSeasonings = myKitchen.seasonings.slice(0, 6).join(', ') +
         (myKitchen.seasonings.length > 6 ? ` 외 ${myKitchen.seasonings.length - 6}종` : '');
       document.getElementById('activeKitchenText').innerHTML =
-        `<b>[${previewTools}]</b> · 양념: <b>${previewSeasonings || '없음'}</b>`;
+        `<b>[${escapeHtml(previewTools)}]</b> · 양념: <b>${escapeHtml(previewSeasonings) || '없음'}</b>`;
 
-      document.getElementById('toolOptionsGrid').innerHTML = ALL_TOOLS.map(t => {
+      // 직접 추가한 항목은 이름이 자유 입력이라 onclick에는 이름 대신 순번을 넘기고, 표시할 때는 escape
+      document.getElementById('toolOptionsGrid').innerHTML = getAllTools().map((t, i) => {
         const active = myKitchen.tools.includes(t.id);
         return `
-          <button onclick="toggleTool('${t.id}')" class="p-3 rounded-xl border text-left transition flex items-center justify-between ${
-            active ? 'bg-orange-500/15 border-orange-500 text-white font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
-          }">
-            <span class="text-xs">${t.icon} ${t.id}</span>
-            <span class="text-[10px] ${active ? 'text-orange-400' : 'text-slate-600'}">${active ? '보유' : '없음'}</span>
-          </button>
+          <div class="relative">
+            <button onclick="toggleToolAt(${i})" class="w-full p-3 rounded-xl border text-left transition flex items-center justify-between ${
+              active ? 'bg-orange-500/15 border-orange-500 text-white font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
+            }">
+              <span class="text-xs">${t.icon} ${escapeHtml(t.id)}</span>
+              <span class="text-[10px] ${active ? 'text-orange-400' : 'text-slate-600'} ${t.custom ? 'mr-4' : ''}">${active ? '보유' : '없음'}</span>
+            </button>
+            ${t.custom ? `<button onclick="removeCustomItem('tool', ${i - ALL_TOOLS.length})" aria-label="${escapeHtml(t.id)} 삭제" class="absolute top-1 right-1 w-5 h-5 rounded-full text-[10px] text-slate-400 hover:text-rose-400">✕</button>` : ''}
+          </div>
         `;
       }).join('');
 
-      document.getElementById('seasoningOptionsGrid').innerHTML = ALL_SEASONINGS.map(s => {
-        const active = myKitchen.seasonings.includes(s);
+      document.getElementById('seasoningOptionsGrid').innerHTML = getAllSeasonings().map((s, i) => {
+        const active = myKitchen.seasonings.includes(s.name);
         return `
-          <button onclick="toggleSeasoning('${s}')" class="py-2.5 px-3 rounded-xl border text-xs transition text-center ${
-            active ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
-          }">
-            ${active ? '✓ ' : ''}${s}
-          </button>
+          <div class="relative">
+            <button onclick="toggleSeasoningAt(${i})" class="w-full py-2.5 px-3 rounded-xl border text-xs transition text-center ${
+              active ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold' : 'bg-slate-950 border-slate-800 text-slate-500'
+            }">
+              ${active ? '✓ ' : ''}${escapeHtml(s.name)}
+            </button>
+            ${s.custom ? `<button onclick="removeCustomItem('seasoning', ${i - ALL_SEASONINGS.length})" aria-label="${escapeHtml(s.name)} 삭제" class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-[10px] text-slate-400 hover:text-rose-400">✕</button>` : ''}
+          </div>
         `;
       }).join('');
     }
 
-    function toggleTool(toolId) {
+    function toggleToolAt(i) {
+      const toolId = getAllTools()[i]?.id;
+      if (!toolId) return;
       const idx = myKitchen.tools.indexOf(toolId);
       if (idx > -1) {
         if (myKitchen.tools.length === 1) return alert('최소 1개의 조리 도구는 선택되어 있어야 합니다!');
@@ -1155,16 +1204,47 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       } else {
         myKitchen.tools.push(toolId);
       }
-      localStorage.setItem('my_kitchen_profile_v5', JSON.stringify(myKitchen));
-      renderKitchenSelectors();
+      saveKitchen();
     }
 
-    function toggleSeasoning(s) {
+    function toggleSeasoningAt(i) {
+      const s = getAllSeasonings()[i]?.name;
+      if (!s) return;
       const idx = myKitchen.seasonings.indexOf(s);
       if (idx > -1) myKitchen.seasonings.splice(idx, 1);
       else myKitchen.seasonings.push(s);
-      localStorage.setItem('my_kitchen_profile_v5', JSON.stringify(myKitchen));
-      renderKitchenSelectors();
+      saveKitchen();
+    }
+
+    function addCustomKitchenItem() {
+      const input = document.getElementById('customItemInput');
+      const kind = document.getElementById('customKindSelect').value;
+      const name = input.value.trim().slice(0, 20);
+      if (!name) return;
+      if (kind === 'tool') {
+        if (getAllTools().some(t => t.id === name)) return alert('이미 목록에 있는 도구입니다!');
+        myKitchen.customTools.push(name);
+        myKitchen.tools.push(name);
+      } else {
+        if (getAllSeasonings().some(s => s.name === name)) return alert('이미 목록에 있는 양념입니다!');
+        myKitchen.customSeasonings.push(name);
+        myKitchen.seasonings.push(name);
+      }
+      input.value = '';
+      saveKitchen();
+    }
+
+    function removeCustomItem(kind, customIdx) {
+      const listKey = kind === 'tool' ? 'customTools' : 'customSeasonings';
+      const activeKey = kind === 'tool' ? 'tools' : 'seasonings';
+      const name = myKitchen[listKey][customIdx];
+      if (name === undefined) return;
+      if (kind === 'tool' && myKitchen.tools.length === 1 && myKitchen.tools[0] === name) {
+        return alert('최소 1개의 조리 도구는 선택되어 있어야 합니다!');
+      }
+      myKitchen[listKey].splice(customIdx, 1);
+      myKitchen[activeKey] = myKitchen[activeKey].filter(x => x !== name);
+      saveKitchen();
     }
 
     function addIngredientsFromInput() {
@@ -1222,8 +1302,8 @@ JSON(framework_id, framework_name, dish_name, one_line_pitch, used_tool, used_se
       listEl.innerHTML = savedRecipes.map((item, idx) => `
         <div class="flex items-center justify-between bg-slate-950 border border-slate-800 p-3.5 rounded-2xl">
           <button onclick="loadFromSaved(${idx})" class="text-left flex-1 pr-3">
-            <div class="text-xs font-extrabold text-white">${item.dish_name}</div>
-            <div class="text-[11px] text-slate-400 mt-0.5">${item.framework_name} · ${item.input_ingredients.join(', ')}</div>
+            <div class="text-xs font-extrabold text-white">${escapeHtml(item.dish_name)}</div>
+            <div class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(item.framework_name)} · ${escapeHtml(item.input_ingredients.join(', '))}</div>
           </button>
           <button onclick="removeSaved(${idx})" class="text-xs text-slate-500 hover:text-rose-400 px-2">삭제</button>
         </div>
